@@ -11,20 +11,28 @@ const { v4: uuidv4 } = require('uuid');
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-// Middleware
-
-// Enable CORS for all origins (or restrict to your GitHub Pages domain)
+// --- CORS must come BEFORE routes ---
 app.use(cors({
-    origin: '*', // For production, replace with 'https://syt6099.github.io'
+    origin: '*', // replace with 'https://syt6099.github.io' later
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization']
 }));
-
-// Handle preflight requests explicitly
 app.options('*', cors());
+
+// --- Manual CORS fallback (ensures headers for all responses) ---
+app.use((req, res, next) => {
+    res.header('Access-Control-Allow-Origin', '*');
+    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+    res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    if (req.method === 'OPTIONS') {
+        return res.sendStatus(200);
+    }
+    next();
+});
+
 app.use(express.json());
 
-// ---------- File-based storage (replace with DB later) ----------
+// ---------- File-based storage ----------
 const DATA_DIR = path.join(__dirname, 'data');
 const USERS_FILE = path.join(DATA_DIR, 'users.json');
 const EXAM_WEEKS_FILE = path.join(DATA_DIR, 'examWeeks.json');
@@ -33,7 +41,6 @@ const EXAMS_FILE = path.join(DATA_DIR, 'exams.json');
 const AVAILABILITIES_FILE = path.join(DATA_DIR, 'availabilities.json');
 const ALLOCATIONS_FILE = path.join(DATA_DIR, 'allocations.json');
 
-// Ensure data directory and files exist
 async function initDataFiles() {
   await fs.mkdir(DATA_DIR, { recursive: true });
   const files = [USERS_FILE, EXAM_WEEKS_FILE, TEACHERS_FILE, EXAMS_FILE, AVAILABILITIES_FILE, ALLOCATIONS_FILE];
@@ -47,7 +54,6 @@ async function initDataFiles() {
 }
 initDataFiles();
 
-// Helper: read/write JSON
 async function readJSON(file) {
   const data = await fs.readFile(file, 'utf8');
   return JSON.parse(data);
@@ -56,9 +62,9 @@ async function writeJSON(file, data) {
   await fs.writeFile(file, JSON.stringify(data, null, 2));
 }
 
-// ---------- Email transporter ----------
+// ---------- Email transporter (optional) ----------
 const transporter = nodemailer.createTransport({
-  host: process.env.EMAIL_HOST || 'smtp.office365.com',
+  host: process.env.EMAIL_HOST || 'smtp-mail.outlook.com',
   port: parseInt(process.env.EMAIL_PORT || '587'),
   secure: false,
   auth: {
@@ -84,20 +90,14 @@ function authenticate(req, res, next) {
 
 // ---------- Routes ----------
 
-// ---- Auth ----
+// Signup (verification disabled)
 app.post('/api/auth/signup', async (req, res) => {
   const { username, email, password } = req.body;
-  
   if (!username || !email || !password) {
-      return res.status(400).json({ error: 'Missing fields' });
+    return res.status(400).json({ error: 'Missing fields' });
   }
 
-  // Validate the code
-  //const stored = global.resetCodes ? global.resetCodes[email] : null;
-  //if (!stored || stored.code !== code || Date.now() > stored.expires) {
-    //return res.status(400).json({ error: 'Invalid or expired verification code' });
-  //}
-
+  // (Verification check is skipped)
   const users = await readJSON(USERS_FILE);
   if (users.find(u => u.email === email)) {
     return res.status(400).json({ error: 'Email already registered' });
@@ -111,17 +111,16 @@ app.post('/api/auth/signup', async (req, res) => {
     passwordHash: hashed,
     createdAt: new Date().toISOString(),
   };
-  
   users.push(newUser);
   await writeJSON(USERS_FILE, users);
-  
-  // Clear the code after successful use
-  delete global.resetCodes[email];
-  
+
+  // Clean any pending code
+  if (global.resetCodes) delete global.resetCodes[email];
+
   res.status(201).json({ message: 'User created successfully.' });
 });
 
-// Send code for new user registration
+// Send signup code (optional)
 app.post('/api/auth/send-signup-code', async (req, res) => {
   const { email } = req.body;
   if (!email) return res.status(400).json({ error: 'Email is required' });
@@ -149,6 +148,7 @@ app.post('/api/auth/send-signup-code', async (req, res) => {
   }
 });
 
+// Login
 app.post('/api/auth/login', async (req, res) => {
   const { email, password } = req.body;
   const users = await readJSON(USERS_FILE);
@@ -160,26 +160,27 @@ app.post('/api/auth/login', async (req, res) => {
   res.json({ token, user: { id: user.id, username: user.username, email: user.email } });
 });
 
-// Forgot password – send code
+// Forgot password
 app.post('/api/auth/forgot-password', async (req, res) => {
   const { email } = req.body;
   const users = await readJSON(USERS_FILE);
   const user = users.find(u => u.email === email);
   if (!user) return res.status(404).json({ error: 'User not found' });
-  // Generate 6-digit code and store temporarily (in-memory for simplicity)
   const code = Math.floor(100000 + Math.random() * 900000).toString();
-  // You should store code with expiry in a temporary store (e.g., Redis or a simple object)
-  // For demo, we store in a global object (will be lost on server restart)
   if (!global.resetCodes) global.resetCodes = {};
   global.resetCodes[email] = { code, expires: Date.now() + 10 * 60 * 1000 };
-  // Send email
-  await transporter.sendMail({
-    from: `"Invigiflow" <${process.env.EMAIL_USER}>`,
-    to: email,
-    subject: 'Password Reset Code',
-    html: `<p>Your password reset code is: <strong>${code}</strong></p><p>It expires in 10 minutes.</p>`,
-  });
-  res.json({ message: 'Code sent to your email.' });
+  try {
+    await transporter.sendMail({
+      from: `"Invigiflow" <${process.env.EMAIL_USER}>`,
+      to: email,
+      subject: 'Password Reset Code',
+      html: `<p>Your password reset code is: <strong>${code}</strong></p><p>It expires in 10 minutes.</p>`,
+    });
+    res.json({ message: 'Code sent to your email.' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to send reset email' });
+  }
 });
 
 app.post('/api/auth/reset-password', async (req, res) => {
@@ -200,13 +201,11 @@ app.post('/api/auth/reset-password', async (req, res) => {
   res.json({ message: 'Password reset successfully.' });
 });
 
-// ---- Teacher DB ----
+// ---- Teacher CRUD ----
 app.get('/api/teachers', authenticate, async (req, res) => {
   const teachers = await readJSON(TEACHERS_FILE);
-  // In a real multi-user system, filter by userId; for now return all (single-user demo)
   res.json(teachers);
 });
-
 app.post('/api/teachers', authenticate, async (req, res) => {
   const teachers = await readJSON(TEACHERS_FILE);
   const newTeacher = { id: uuidv4(), ...req.body };
@@ -214,7 +213,6 @@ app.post('/api/teachers', authenticate, async (req, res) => {
   await writeJSON(TEACHERS_FILE, teachers);
   res.status(201).json(newTeacher);
 });
-
 app.put('/api/teachers/:id', authenticate, async (req, res) => {
   const teachers = await readJSON(TEACHERS_FILE);
   const idx = teachers.findIndex(t => t.id === req.params.id);
@@ -223,7 +221,6 @@ app.put('/api/teachers/:id', authenticate, async (req, res) => {
   await writeJSON(TEACHERS_FILE, teachers);
   res.json(teachers[idx]);
 });
-
 app.delete('/api/teachers/:id', authenticate, async (req, res) => {
   let teachers = await readJSON(TEACHERS_FILE);
   teachers = teachers.filter(t => t.id !== req.params.id);
@@ -236,7 +233,6 @@ app.get('/api/exam-weeks', authenticate, async (req, res) => {
   const weeks = await readJSON(EXAM_WEEKS_FILE);
   res.json(weeks);
 });
-
 app.post('/api/exam-weeks', authenticate, async (req, res) => {
   const weeks = await readJSON(EXAM_WEEKS_FILE);
   const newWeek = { id: uuidv4(), ...req.body, createdAt: new Date().toISOString() };
@@ -251,7 +247,6 @@ app.get('/api/exam-weeks/:weekId/exams', authenticate, async (req, res) => {
   const filtered = exams.filter(e => e.examWeekId === req.params.weekId);
   res.json(filtered);
 });
-
 app.post('/api/exams', authenticate, async (req, res) => {
   const exams = await readJSON(EXAMS_FILE);
   const newExam = { id: uuidv4(), ...req.body };
@@ -271,24 +266,21 @@ app.post('/api/availabilities', authenticate, async (req, res) => {
 
 // ---- Allocations ----
 app.post('/api/allocations', authenticate, async (req, res) => {
-  // Expect { examWeekId, allocations: [ { examId, teacherIds } ] }
   const { examWeekId, allocations } = req.body;
   const allAlloc = await readJSON(ALLOCATIONS_FILE);
-  // Remove old allocations for this week
   const filtered = allAlloc.filter(a => a.examWeekId !== examWeekId);
   const newAlloc = { id: uuidv4(), examWeekId, allocations, createdAt: new Date().toISOString() };
   filtered.push(newAlloc);
   await writeJSON(ALLOCATIONS_FILE, filtered);
   res.status(201).json(newAlloc);
 });
-
 app.get('/api/allocations/:examWeekId', authenticate, async (req, res) => {
   const allAlloc = await readJSON(ALLOCATIONS_FILE);
   const found = allAlloc.find(a => a.examWeekId === req.params.examWeekId);
   res.json(found || { allocations: [] });
 });
 
-// ---- Email sending ----
+// ---- Send email (general) ----
 app.post('/api/send-email', authenticate, async (req, res) => {
   const { to, subject, html } = req.body;
   if (!to) return res.status(400).json({ error: 'Missing recipient' });
@@ -306,8 +298,7 @@ app.post('/api/send-email', authenticate, async (req, res) => {
   }
 });
 
-
-// Welcome route (optional)
+// ---- Root redirect ----
 app.get('/', (req, res) => {
     res.redirect('https://syt6099.github.io/Invigiflow/login.html');
 });
