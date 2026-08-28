@@ -4,7 +4,7 @@
 
 // ---------- API Configuration ----------
 // Change this if your backend runs on a different host/port
-const API_BASE = 'https://your-app-name.onrender.com/api';
+const API_BASE = 'https://invigiflow.onrender.com/api';
 
 // ---------- Helper: get JWT token ----------
 function getToken() {
