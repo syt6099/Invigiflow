@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Allocation Results</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:opsz@14..32&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+</head>
+<body>
+    <div id="app">
+        <a href="parse-confirm.html" class="back-link">← Confirm</a>
+        <div class="card mt-3">
+            <div class="card-header">
+                <h2>Allocation Results</h2>
+            </div>
+
+            <div class="flex-between mb-3 flex-wrap gap-2">
+                <div class="mode-toggle">
+                    <button class="active">By Exam</button>
+                    <button>By Teacher</button>
+                </div>
+                <div class="flex gap-2">
+                    <button class="btn btn-outline btn-sm" id="edit-alloc-btn"><i class="fas fa-edit"></i> Edit</button>
+                    <button class="btn btn-outline btn-sm" id="back-to-parse-btn"><i class="fas fa-calendar-alt"></i> Edit Exam Schedules</button>
+                </div>
+            </div>
+
+            <div id="alloc-exam-view">
+                <div class="table-wrap">
+                    <table>
+                        <thead>
+                            <tr><th>Subject</th><th>Exam Name</th><th>Type</th><th>Students</th><th>Start</th><th>End</th><th>Invigilators</th><th>Actions</th></tr>
+                        </thead>
+                        <tbody id="alloc-exam-body"></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div id="alloc-teacher-view" class="hidden">
+                <div class="table-wrap">
+                    <table>
+                        <thead><tr><th>Teacher</th><th>Hours</th><th>Assigned Sessions</th></tr></thead>
+                        <tbody id="alloc-teacher-body"></tbody>
+                    </table>
+                </div>
+                <div class="bar-chart" id="bar-chart-container"></div>
+            </div>
+
+            <div class="flex gap-2 mt-4">
+                <button class="btn btn-success" id="final-confirm-btn">Confirm Allocations</button>
+                <a href="parse-confirm.html" class="btn btn-outline">Back</a>
+            </div>
+        </div>
+        <div id="toast" class="toast"></div>
+    </div>
+    <script src="app.js"></script>
+</body>
+</html>

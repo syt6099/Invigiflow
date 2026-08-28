@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Exam Settings</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:opsz@14..32&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div id="app">
+        <a href="dashboard.html" class="back-link">← Dashboard</a>
+        <div class="card mt-3">
+            <h2>Exam Week Settings</h2>
+            <form id="exam-settings-form">
+                <div class="form-row mt-3">
+                    <div class="form-group">
+                        <label>Exam Week Name</label>
+                        <input type="text" id="ew-name" placeholder="e.g. Final Exams 2026" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Timezone</label>
+                        <select id="ew-timezone">
+                            <option value="UTC-12">UTC-12</option>
+                            <option value="UTC-11">UTC-11</option>
+                            <option value="UTC-10">UTC-10</option>
+                            <option value="UTC-9">UTC-9</option>
+                            <option value="UTC-8">UTC-8 (Pacific)</option>
+                            <option value="UTC-7">UTC-7</option>
+                            <option value="UTC-6">UTC-6 (Central)</option>
+                            <option value="UTC-5">UTC-5 (Eastern)</option>
+                            <option value="UTC-4">UTC-4</option>
+                            <option value="UTC-3">UTC-3</option>
+                            <option value="UTC-2">UTC-2</option>
+                            <option value="UTC-1">UTC-1</option>
+                            <option value="UTC+0" selected>UTC+0 (GMT)</option>
+                            <option value="UTC+1">UTC+1</option>
+                            <option value="UTC+2">UTC+2</option>
+                            <option value="UTC+3">UTC+3</option>
+                            <option value="UTC+4">UTC+4</option>
+                            <option value="UTC+5">UTC+5</option>
+                            <option value="UTC+6">UTC+6</option>
+                            <option value="UTC+7">UTC+7</option>
+                            <option value="UTC+8">UTC+8 (Beijing)</option>
+                            <option value="UTC+9">UTC+9</option>
+                            <option value="UTC+10">UTC+10</option>
+                            <option value="UTC+11">UTC+11</option>
+                            <option value="UTC+12">UTC+12</option>
+                            <option value="UTC+13">UTC+13</option>
+                            <option value="UTC+14">UTC+14</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Start Date</label>
+                        <input type="date" id="ew-start" required>
+                    </div>
+                    <div class="form-group">
+                        <label>End Date</label>
+                        <input type="date" id="ew-end" required>
+                    </div>
+                </div>
+                <div class="flex gap-2 mt-3">
+                    <button type="submit" class="btn btn-primary">Next: Teacher Availability</button>
+                    <a href="dashboard.html" class="btn btn-outline">Cancel</a>
+                </div>
+            </form>
+        </div>
+        <div id="toast" class="toast"></div>
+    </div>
+    <script src="app.js"></script>
+</body>
+</html>

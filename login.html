@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Invigiflow – Login</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:opsz@14..32&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div id="app">
+        <div class="login-box">
+            <h1>Invigiflow</h1>
+            <p class="sub">Exam invigilation scheduler</p>
+            <form id="login-form">
+                <div class="form-group">
+                    <label>Email</label>
+                    <input type="email" id="login-email" required>
+                </div>
+                <div class="form-group">
+                    <label>Password</label>
+                    <input type="password" id="login-password" required>
+                </div>
+                <button type="submit" class="btn btn-primary btn-block">Log in</button>
+                <div class="links">
+                    <a href="forgot-password.html">Forgot password?</a>
+                    <a href="signup.html">Create account</a>
+                </div>
+            </form>
+        </div>
+        <div id="toast" class="toast"></div>
+    </div>
+    <script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Final Allocations</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:opsz@14..32&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+</head>
+<body>
+    <div id="app">
+        <div class="flex-between mb-3">
+            <div>
+                <h1>Final Allocations</h1>
+            </div>
+            <div class="flex gap-2 no-print">
+                <button class="btn btn-outline btn-sm" id="edit-final-btn"><i class="fas fa-edit"></i> Edit</button>
+                <button class="btn btn-outline btn-sm" id="print-exam-btn"><i class="fas fa-print"></i> Print (Exam)</button>
+                <button class="btn btn-outline btn-sm" id="print-teacher-btn"><i class="fas fa-print"></i> Print (Teacher)</button>
+                <button class="btn btn-primary btn-sm" id="email-alloc-btn"><i class="fas fa-envelope"></i> Email All</button>
+                <button class="btn btn-outline btn-sm" id="back-to-dashboard"><i class="fas fa-arrow-left"></i> Dashboard</button>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="flex-between mb-3 flex-wrap gap-2">
+                <div class="mode-toggle" id="final-mode-toggle">
+                    <button class="active">By Exam</button>
+                    <button>By Teacher</button>
+                </div>
+            </div>
+            <div id="final-exam-view">
+                <div class="table-wrap">
+                    <table>
+                        <thead>
+                            <tr><th>Subject</th><th>Exam Name</th><th>Type</th><th>Students</th><th>Start</th><th>End</th><th>Invigilators</th></tr>
+                        </thead>
+                        <tbody id="final-exam-body"></tbody>
+                    </table>
+                </div>
+            </div>
+            <div id="final-teacher-view" class="hidden">
+                <div class="table-wrap">
+                    <table>
+                        <thead><tr><th>Teacher</th><th>Hours</th><th>Assigned Sessions</th></tr></thead>
+                        <tbody id="final-teacher-body"></tbody>
+                    </table>
+                </div>
+                <div class="bar-chart" id="final-bar-chart"></div>
+            </div>
+        </div>
+        <div id="toast" class="toast"></div>
+    </div>
+    <script src="app.js"></script>
+</body>
+</html>

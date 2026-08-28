@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Teacher Database</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:opsz@14..32&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+</head>
+<body>
+    <div id="app">
+        <a href="dashboard.html" class="back-link">← Dashboard</a>
+        <div class="card mt-3">
+            <div class="card-header">
+                <h2>Teacher Database</h2>
+                <div class="flex gap-2">
+                    <a href="database-upload.html" class="btn btn-outline btn-sm"><i class="fas fa-upload"></i> Upload</a>
+                    <a href="database-edit.html" class="btn btn-outline btn-sm"><i class="fas fa-edit"></i> Edit</a>
+                    <button class="btn btn-outline btn-sm" onclick="window.print()"><i class="fas fa-print"></i> Print</button>
+                </div>
+            </div>
+            <div class="table-wrap">
+                <table>
+                    <thead><tr><th>Name</th><th>Email</th><th>Subjects</th><th>Years</th><th>Teaching Hrs</th></tr></thead>
+                    <tbody id="db-table-body"></tbody>
+                </table>
+            </div>
+            <div id="db-empty" class="empty-state">No teachers in database.</div>
+        </div>
+        <div id="toast" class="toast"></div>
+    </div>
+    <script src="app.js"></script>
+</body>
+</html>

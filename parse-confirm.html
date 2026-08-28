@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Confirm Exam Data</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:opsz@14..32&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div id="app">
+        <a href="upload.html" class="back-link">← Upload</a>
+        <div class="card mt-3">
+            <div class="card-header">
+                <h2>Confirm Exam Data</h2>
+            </div>
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr><th>#</th><th>Subject</th><th>Exam Name</th><th>Type</th><th>Students</th><th>Start</th><th>End</th><th></th></tr>
+                    </thead>
+                    <tbody id="parse-table-body"></tbody>
+                </table>
+            </div>
+
+            <!-- Manual add section -->
+            <div style="border-top:1px solid var(--border); margin-top:20px; padding-top:20px;">
+                <h4>Add Another Exam</h4>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Subject</label>
+                        <input type="text" id="parse-add-subject" placeholder="e.g. Mathematics" list="subject-list-parse">
+                    </div>
+                    <div class="form-group">
+                        <label>Exam Name</label>
+                        <input type="text" id="parse-add-name" placeholder="e.g. Math Final">
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Type</label>
+                        <select id="parse-add-type">
+                            <option value="internal">Internal</option>
+                            <option value="external">External</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label># Students</label>
+                        <input type="number" id="parse-add-students" placeholder="30">
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Start Time</label>
+                        <input type="datetime-local" id="parse-add-start">
+                    </div>
+                    <div class="form-group">
+                        <label>End Time</label>
+                        <input type="datetime-local" id="parse-add-end">
+                    </div>
+                </div>
+                <button class="btn btn-primary btn-sm" id="parse-add-exam-btn">Add Exam</button>
+            </div>
+
+            <div class="flex gap-2 mt-4">
+                <button class="btn btn-success" id="confirm-parse-btn">Confirm & Generate Allocations</button>
+                <a href="upload.html" class="btn btn-outline">Back</a>
+            </div>
+        </div>
+        <div id="toast" class="toast"></div>
+    </div>
+    <script src="app.js"></script>
+</body>
+</html>
