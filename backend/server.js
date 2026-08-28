@@ -86,17 +86,17 @@ function authenticate(req, res, next) {
 
 // ---- Auth ----
 app.post('/api/auth/signup', async (req, res) => {
-  const { username, email, password, code } = req.body;
+  const { username, email, password } = req.body;
   
   if (!username || !email || !password || !code) {
       return res.status(400).json({ error: 'Missing fields' });
   }
 
   // Validate the code
-  const stored = global.resetCodes ? global.resetCodes[email] : null;
-  if (!stored || stored.code !== code || Date.now() > stored.expires) {
-    return res.status(400).json({ error: 'Invalid or expired verification code' });
-  }
+  //const stored = global.resetCodes ? global.resetCodes[email] : null;
+  //if (!stored || stored.code !== code || Date.now() > stored.expires) {
+    //return res.status(400).json({ error: 'Invalid or expired verification code' });
+  //}
 
   const users = await readJSON(USERS_FILE);
   if (users.find(u => u.email === email)) {
