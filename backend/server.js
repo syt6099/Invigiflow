@@ -105,6 +105,34 @@ app.post('/api/auth/signup', async (req, res) => {
   res.status(201).json({ message: 'User created. Please verify your email.' });
 });
 
+// Send code for new user registration
+app.post('/api/auth/send-signup-code', async (req, res) => {
+  const { email } = req.body;
+  if (!email) return res.status(400).json({ error: 'Email is required' });
+
+  const users = await readJSON(USERS_FILE);
+  if (users.find(u => u.email === email)) {
+    return res.status(400).json({ error: 'Email already registered' });
+  }
+
+  const code = Math.floor(100000 + Math.random() * 900000).toString();
+  if (!global.resetCodes) global.resetCodes = {};
+  global.resetCodes[email] = { code, expires: Date.now() + 10 * 60 * 1000 };
+
+  try {
+    await transporter.sendMail({
+      from: `"Invigiflow" <${process.env.EMAIL_USER}>`,
+      to: email,
+      subject: 'Invigiflow Verification Code',
+      html: `<p>Your verification code is: <strong>${code}</strong></p><p>It expires in 10 minutes.</p>`,
+    });
+    res.json({ message: 'Verification code sent.' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to send verification email' });
+  }
+});
+
 app.post('/api/auth/login', async (req, res) => {
   const { email, password } = req.body;
   const users = await readJSON(USERS_FILE);
