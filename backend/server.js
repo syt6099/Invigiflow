@@ -11,7 +11,7 @@ const { v4: uuidv4 } = require('uuid');
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-// --- CORS (must come before routes) ---
+// --- CORS ---
 app.use(cors({
     origin: '*',
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
@@ -19,7 +19,6 @@ app.use(cors({
 }));
 app.options('*', cors());
 
-// --- Manual CORS fallback ---
 app.use((req, res, next) => {
     res.header('Access-Control-Allow-Origin', '*');
     res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
@@ -32,7 +31,6 @@ app.use((req, res, next) => {
 
 app.use(express.json());
 
-// ---------- File-based storage ----------
 const DATA_DIR = path.join(__dirname, 'data');
 const USERS_FILE = path.join(DATA_DIR, 'users.json');
 const EXAM_WEEKS_FILE = path.join(DATA_DIR, 'examWeeks.json');
@@ -62,7 +60,6 @@ async function writeJSON(file, data) {
   await fs.writeFile(file, JSON.stringify(data, null, 2));
 }
 
-// ---------- Email transporter ----------
 const transporter = nodemailer.createTransport({
   host: process.env.EMAIL_HOST || 'smtp-mail.outlook.com',
   port: parseInt(process.env.EMAIL_PORT || '587'),
@@ -74,7 +71,6 @@ const transporter = nodemailer.createTransport({
   requireTLS: true,
 });
 
-// ---------- Middleware: verify JWT ----------
 function authenticate(req, res, next) {
   const authHeader = req.headers.authorization;
   if (!authHeader) return res.status(401).json({ error: 'No token provided' });
@@ -88,9 +84,7 @@ function authenticate(req, res, next) {
   }
 }
 
-// ---------- Routes ----------
-
-// ---- Signup (case‑insensitive email, verification disabled) ----
+// ---- Auth Routes ----
 app.post('/api/auth/signup', async (req, res) => {
   const { username, email, password } = req.body;
   if (!username || !email || !password) {
@@ -115,7 +109,6 @@ app.post('/api/auth/signup', async (req, res) => {
   res.status(201).json({ message: 'User created successfully.' });
 });
 
-// ---- Send signup code (optional) ----
 app.post('/api/auth/send-signup-code', async (req, res) => {
   const { email } = req.body;
   if (!email) return res.status(400).json({ error: 'Email is required' });
@@ -141,7 +134,6 @@ app.post('/api/auth/send-signup-code', async (req, res) => {
   }
 });
 
-// ---- Login (case‑insensitive) ----
 app.post('/api/auth/login', async (req, res) => {
   const { email, password } = req.body;
   const normalizedEmail = email.toLowerCase().trim();
@@ -154,7 +146,6 @@ app.post('/api/auth/login', async (req, res) => {
   res.json({ token, user: { id: user.id, username: user.username, email: user.email } });
 });
 
-// ---- Forgot password ----
 app.post('/api/auth/forgot-password', async (req, res) => {
   const { email } = req.body;
   const normalizedEmail = email.toLowerCase().trim();
@@ -197,7 +188,7 @@ app.post('/api/auth/reset-password', async (req, res) => {
   res.json({ message: 'Password reset successfully.' });
 });
 
-// ---- Teacher CRUD ----
+// ---- Teacher Routes ----
 app.get('/api/teachers', authenticate, async (req, res) => {
   const teachers = await readJSON(TEACHERS_FILE);
   res.json(teachers);
@@ -227,7 +218,7 @@ app.delete('/api/teachers/:id', authenticate, async (req, res) => {
   res.json({ message: 'Deleted' });
 });
 
-// ---- Exam Weeks ----
+// ---- Exam Weeks Routes ----
 app.get('/api/exam-weeks', authenticate, async (req, res) => {
   const weeks = await readJSON(EXAM_WEEKS_FILE);
   res.json(weeks);
@@ -254,7 +245,6 @@ app.delete('/api/exam-weeks/:id', authenticate, async (req, res) => {
   let weeks = await readJSON(EXAM_WEEKS_FILE);
   weeks = weeks.filter(w => w.id !== req.params.id);
   await writeJSON(EXAM_WEEKS_FILE, weeks);
-  // Delete associated exams and allocations
   let exams = await readJSON(EXAMS_FILE);
   exams = exams.filter(e => e.examWeekId !== req.params.id);
   await writeJSON(EXAMS_FILE, exams);
@@ -264,7 +254,7 @@ app.delete('/api/exam-weeks/:id', authenticate, async (req, res) => {
   res.json({ message: 'Exam week and related data deleted' });
 });
 
-// ---- Exams ----
+// ---- Exams Routes ----
 app.get('/api/exam-weeks/:weekId/exams', authenticate, async (req, res) => {
   const exams = await readJSON(EXAMS_FILE);
   const filtered = exams.filter(e => e.examWeekId === req.params.weekId);
@@ -291,13 +281,12 @@ app.post('/api/availabilities', authenticate, async (req, res) => {
 // ---- Allocations ----
 app.post('/api/allocations', authenticate, async (req, res) => {
   const { examWeekId, allocations } = req.body;
-  // Here we expect `allocations` to be the full object: { assignments, sections, teacherHours }
   const allAlloc = await readJSON(ALLOCATIONS_FILE);
   const filtered = allAlloc.filter(a => a.examWeekId !== examWeekId);
   const newAlloc = { 
     id: uuidv4(), 
     examWeekId, 
-    allocations,   // store the full object
+    allocations,
     createdAt: new Date().toISOString() 
   };
   filtered.push(newAlloc);
@@ -311,7 +300,7 @@ app.get('/api/allocations/:examWeekId', authenticate, async (req, res) => {
   res.json(found || { allocations: null });
 });
 
-// ---- Send email (general) ----
+// ---- Send email ----
 app.post('/api/send-email', authenticate, async (req, res) => {
   const { to, subject, html } = req.body;
   if (!to) return res.status(400).json({ error: 'Missing recipient' });
@@ -329,12 +318,10 @@ app.post('/api/send-email', authenticate, async (req, res) => {
   }
 });
 
-// ---- Root redirect ----
 app.get('/', (req, res) => {
     res.redirect('https://syt6099.github.io/Invigiflow/login.html');
 });
 
-// Start server
 app.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`);
 });
