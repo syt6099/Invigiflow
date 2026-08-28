@@ -21,13 +21,17 @@
                     <label>Email</label>
                     <input type="email" id="signup-email" required>
                 </div>
-                <div class="form-group">
-                    <label>Verification Code</label>
-                    <div style="display:flex; gap:8px;">
-                        <input type="text" id="signup-code" placeholder="6-digit code" required style="flex:1;">
-                        <button type="button" id="send-code-btn" class="btn btn-outline btn-sm">Send Code</button>
-                    </div>
-                </div>
+<!-- TEMPORARILY DISABLED: Verification code
+<div class="form-group">
+    <label>Verification Code</label>
+    <div style="display:flex; gap:8px;">
+        <input type="text" id="signup-code" placeholder="6-digit code" required style="flex:1;">
+        <button type="button" id="send-code-btn" class="btn btn-outline btn-sm">Send Code</button>
+    </div>
+</div>
+-->
+<!-- Hidden field to bypass code requirement -->
+                <input type="hidden" id="signup-code" value="000000">
                 <div class="form-group">
                     <label>Password</label>
                     <input type="password" id="signup-password" required>
