@@ -279,7 +279,7 @@ function initSignup() {
         const email = document.getElementById('signup-email').value.trim();
         const password = document.getElementById('signup-password').value.trim();
         const confirm = document.getElementById('signup-confirm').value.trim();
-        const code = document.getElementById('signup-code').value.trim();
+        //const code = document.getElementById('signup-code').value.trim();
         if (password !== confirm) {
             showToast('Passwords do not match.');
             return;
@@ -288,7 +288,7 @@ function initSignup() {
             await apiFetch('/auth/signup', {
                 method: 'POST',
                 // ADD 'code' TO THE BODY HERE:
-                body: JSON.stringify({ username, email, password, code }), 
+                body: JSON.stringify({ username, email, password, code: '000000' }), 
             });
             showToast('Account created! Please check your email for verification.');
             window.location.href = 'login.html';
