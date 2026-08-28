@@ -1,5 +1,6 @@
 require('dotenv').config();
 const express = require('express');
+const cors = require('cors');
 const fs = require('fs').promises;
 const path = require('path');
 const bcrypt = require('bcryptjs');
@@ -11,7 +12,6 @@ const app = express();
 const PORT = process.env.PORT || 5000;
 
 // Middleware
-const cors = require('cors');
 
 // Enable CORS for all origins (or restrict to your GitHub Pages domain)
 app.use(cors({
