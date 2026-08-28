@@ -256,7 +256,7 @@ app.post('/api/send-email', authenticate, async (req, res) => {
 
 // Welcome route (optional)
 app.get('/', (req, res) => {
-    res.redirect('https://yourusername.github.io/your-repo-name/login.html');
+    res.redirect('https://syt6099.github.io/Invigiflow/login.html');
 });
 
 // Start server
