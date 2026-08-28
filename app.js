@@ -3,7 +3,6 @@
 // ============================================================
 
 // ---------- API Configuration ----------
-// Change this if your backend runs on a different host/port
 const API_BASE = 'https://invigiflow.onrender.com/api';
 
 // ---------- Helper: get JWT token ----------
@@ -27,7 +26,7 @@ async function apiFetch(endpoint, options = {}) {
     return response.json();
 }
 
-// ---------- Global state (populated from API) ----------
+// ---------- Global state ----------
 let STORE = {
     teachers: [],
     examWeeks: [],
@@ -68,12 +67,7 @@ async function loadUserData() {
     }
 }
 
-// ---------- Save user data (no-op for API) ----------
-function saveUserData() {
-    // All saves are done via API calls directly.
-}
-
-// ---------- Helpers (unchanged) ----------
+// ---------- Helpers ----------
 function getTeacher(id) { return STORE.teachers.find(t => t.id === id); }
 function getTeacherName(id) { const t = getTeacher(id); return t ? t.name : 'Unknown'; }
 function getTeacherEmail(id) { const t = getTeacher(id); return t ? t.email : ''; }
@@ -93,7 +87,7 @@ function getAllSubjectsWithOthers() {
     return subjects;
 }
 
-// ---------- Toast (unchanged) ----------
+// ---------- Toast ----------
 let toastTimeout;
 function showToast(msg) {
     const el = document.getElementById('toast');
@@ -104,13 +98,13 @@ function showToast(msg) {
     toastTimeout = setTimeout(() => el.classList.remove('show'), 3000);
 }
 
-// ---------- Date/time formatting (unchanged) ----------
+// ---------- Date/time formatting ----------
 function formatLocalDateTime(date) {
     const pad = n => String(n).padStart(2, '0');
     return `${date.getFullYear()}-${pad(date.getMonth()+1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
-// ---------- Allocation Algorithm (unchanged) ----------
+// ---------- Allocation Algorithm ----------
 function runAllocation(exams, teachers, availability = {}) {
     const sections = [];
     exams.forEach(exam => {
@@ -230,7 +224,7 @@ function runAllocation(exams, teachers, availability = {}) {
     };
 }
 
-// ---------- Bar chart (unchanged) ----------
+// ---------- Bar chart ----------
 function renderBarChart(containerId, data) {
     const container = document.getElementById(containerId);
     if (!container) return;
@@ -247,7 +241,7 @@ function renderBarChart(containerId, data) {
 }
 
 // ============================================================
-//  PAGE-SPECIFIC INIT FUNCTIONS (API version)
+//  PAGE-SPECIFIC INIT FUNCTIONS
 // ============================================================
 
 // ---------- LOGIN ----------
@@ -279,7 +273,7 @@ function initSignup() {
         const email = document.getElementById('signup-email').value.trim();
         const password = document.getElementById('signup-password').value.trim();
         const confirm = document.getElementById('signup-confirm').value.trim();
-        //const code = document.getElementById('signup-code').value.trim();
+        // code is hidden – we skip verification
         if (password !== confirm) {
             showToast('Passwords do not match.');
             return;
@@ -287,24 +281,18 @@ function initSignup() {
         try {
             await apiFetch('/auth/signup', {
                 method: 'POST',
-                // ADD 'code' TO THE BODY HERE:
-                body: JSON.stringify({ username, email, password, code: '000000' }), 
+                body: JSON.stringify({ username, email, password }), // no code sent
             });
-            showToast('Account created! Please check your email for verification.');
+            showToast('Account created! Please log in.');
             window.location.href = 'login.html';
         } catch (err) {
             showToast(err.message);
         }
     });
+    // The "Send Code" button is commented out in HTML, but we keep the listener harmless
     document.getElementById('send-code-btn')?.addEventListener('click', async function() {
-        console.log('Send code button clicked');
-        const btn = this;
         const email = document.getElementById('signup-email').value.trim();
         if (!email) { showToast('Enter email first.'); return; }
-
-        btn.disabled = true;
-        btn.textContent = 'Sending...';
-
         try {
             await apiFetch('/auth/send-signup-code', {
                 method: 'POST',
@@ -312,11 +300,7 @@ function initSignup() {
             });
             showToast('Verification code sent to your email.');
         } catch (err) {
-            console.error('Error sending code:', err);
-            showToast(err.message || 'Failed to send code.');
-        } finally {
-            btn.disabled = false;
-            btn.textContent = 'Send Code';
+            showToast(err.message);
         }
     });
 }
@@ -393,25 +377,40 @@ function renderDashboard() {
     `).join('');
 }
 
+// ---------- UPDATED: openExamWeek ----------
 window.openExamWeek = function(id) {
-    STORE.currentExamWeekId = id;
     const w = getExamWeek(id);
-    if (w && w.finalAllocations) {
+    if (!w) {
+        showToast('Exam week not found.');
+        return;
+    }
+    if (w.finalAllocations) {
+        STORE.currentExamWeekId = id;
         STORE.finalAllocations = w.finalAllocations;
         window.location.href = 'final.html';
-    } else if (w && w.allocations) {
+    } else if (w.allocations) {
+        STORE.currentExamWeekId = id;
         STORE.allocated = w.allocations;
         window.location.href = 'allocation.html';
     } else {
-        showToast('Exam week has no allocations yet.');
+        // No allocations yet – continue setup
+        STORE.currentExamWeekId = id;
+        window.location.href = `settings.html?weekId=${id}`;
     }
 };
 
+// ---------- UPDATED: deleteExamWeek ----------
 window.deleteExamWeek = async function(id) {
     if (!confirm('Delete this exam week permanently?')) return;
-    // There is no DELETE endpoint yet; we just show a message.
-    showToast('Delete functionality not implemented in backend yet.');
-    // Optionally, you can call DELETE /api/exam-weeks/:id when implemented.
+    try {
+        await apiFetch(`/exam-weeks/${id}`, { method: 'DELETE' });
+        STORE.examWeeks = STORE.examWeeks.filter(w => w.id !== id);
+        if (STORE.currentExamWeekId === id) STORE.currentExamWeekId = null;
+        renderDashboard();
+        showToast('Exam week deleted.');
+    } catch (err) {
+        showToast('Failed to delete: ' + err.message);
+    }
 };
 
 window.startNewExamWeek = function() {
@@ -435,12 +434,18 @@ window.logout = function() {
     window.location.href = 'login.html';
 };
 
-// ---------- SETTINGS ----------
+// ---------- SETTINGS (updated to handle weekId) ----------
 async function initSettings() {
     const loaded = await loadUserData();
     if (!loaded || !STORE.isLoggedIn) {
         window.location.href = 'login.html';
         return;
+    }
+    // Read weekId from URL
+    const urlParams = new URLSearchParams(window.location.search);
+    const weekId = urlParams.get('weekId');
+    if (weekId) {
+        STORE.currentExamWeekId = weekId;
     }
     const week = getCurrentExamWeek();
     if (week) {
@@ -457,7 +462,23 @@ async function initSettings() {
         const tz = document.getElementById('ew-timezone').value;
         if (!name || !start || !end) { showToast('Please fill in all fields.'); return false; }
         try {
-            const newWeek = await apiFetch('/exam-weeks', {
+            let newWeek;
+            if (STORE.currentExamWeekId) {
+                // Update existing week – we'll need a PUT endpoint; for simplicity we'll just re‑create.
+                // But we'll implement a PUT later; for now we still create new.
+                // Workaround: delete old and create new? We'll do that.
+                // Actually, we'll just skip update and redirect to availability with same weekId.
+                // But we need to update the week data. We'll do a PUT (not implemented yet).
+                // For now, we assume we are creating a new week each time.
+                // But we want to edit an existing week – we'll implement a quick PUT.
+                // Let's implement a PUT endpoint in backend; for frontend, we'll use the same POST and redirect.
+                // We'll just create a new week and update STORE.
+                // We'll handle this in the next iteration.
+                showToast('Editing existing weeks not yet supported; create a new week instead.');
+                return;
+            }
+            // Create new week
+            newWeek = await apiFetch('/exam-weeks', {
                 method: 'POST',
                 body: JSON.stringify({ name, startDate: start, endDate: end, timezone: tz }),
             });
@@ -466,25 +487,31 @@ async function initSettings() {
             const weeks = await apiFetch('/exam-weeks');
             STORE.examWeeks = weeks;
             showToast('Exam week created!');
-            window.location.href = 'availability.html';
+            window.location.href = `availability.html?weekId=${newWeek.id}`;
         } catch (err) {
             showToast(err.message);
         }
     });
 }
 
-// ---------- AVAILABILITY ----------
+// ---------- AVAILABILITY (handle weekId) ----------
 async function initAvailability() {
     const loaded = await loadUserData();
     if (!loaded || !STORE.isLoggedIn) {
         window.location.href = 'login.html';
         return;
     }
+    // Read weekId from URL
+    const urlParams = new URLSearchParams(window.location.search);
+    const weekId = urlParams.get('weekId');
+    if (weekId) {
+        STORE.currentExamWeekId = weekId;
+    }
     populateTeacherSelects();
     renderAvailability();
     document.getElementById('add-avail-btn')?.addEventListener('click', addAvailability);
     document.getElementById('confirm-avail-btn')?.addEventListener('click', function() {
-        window.location.href = 'upload.html';
+        window.location.href = `upload.html?weekId=${STORE.currentExamWeekId}`;
     });
 }
 
@@ -526,12 +553,18 @@ window.removeAvailability = function(tid, start, end) {
     showToast('Remove availability not yet implemented in backend.');
 };
 
-// ---------- UPLOAD (CSV / Manual) ----------
+// ---------- UPLOAD (handle weekId) ----------
 async function initUpload() {
     const loaded = await loadUserData();
     if (!loaded || !STORE.isLoggedIn) {
         window.location.href = 'login.html';
         return;
+    }
+    // Read weekId from URL
+    const urlParams = new URLSearchParams(window.location.search);
+    const weekId = urlParams.get('weekId');
+    if (weekId) {
+        STORE.currentExamWeekId = weekId;
     }
     const subjects = getAllSubjectsWithOthers();
     const datalist = document.getElementById('subject-list');
@@ -611,7 +644,7 @@ async function parseCSV() {
         if (exams.length === 0) { showToast('No valid exam data found.'); return; }
         STORE.parsedExams = exams;
         sessionStorage.setItem('parsedExams', JSON.stringify(exams));
-        window.location.href = 'parse-confirm.html';
+        window.location.href = `parse-confirm.html?weekId=${STORE.currentExamWeekId}`;
     };
     reader.readAsText(file);
 }
@@ -700,7 +733,7 @@ window.removeManualExam = function(id) {
 
 function confirmExamList() {
     if (STORE.parsedExams.length > 0) {
-        window.location.href = 'parse-confirm.html';
+        window.location.href = `parse-confirm.html?weekId=${STORE.currentExamWeekId}`;
         return;
     }
     if (STORE.currentExam.length === 0) {
@@ -708,15 +741,21 @@ function confirmExamList() {
         return;
     }
     STORE.parsedExams = [...STORE.currentExam];
-    window.location.href = 'parse-confirm.html';
+    window.location.href = `parse-confirm.html?weekId=${STORE.currentExamWeekId}`;
 }
 
-// ---------- PARSE CONFIRM ----------
+// ---------- PARSE CONFIRM (handle weekId) ----------
 async function initParseConfirm() {
     const loaded = await loadUserData();
     if (!loaded || !STORE.isLoggedIn) {
         window.location.href = 'login.html';
         return;
+    }
+    // Read weekId from URL
+    const urlParams = new URLSearchParams(window.location.search);
+    const weekId = urlParams.get('weekId');
+    if (weekId) {
+        STORE.currentExamWeekId = weekId;
     }
     const subjects = getAllSubjectsWithOthers();
     let datalist = document.getElementById('subject-list-parse');
@@ -832,6 +871,8 @@ async function initParseConfirm() {
             week.allocations = JSON.parse(JSON.stringify(alloc));
             week.finalAllocations = null;
             showToast('Allocation done!');
+            // Redirect to allocation page with weekId
+            window.location.href = `allocation.html?weekId=${STORE.currentExamWeekId}`;
         } else {
             try {
                 const newWeek = await apiFetch('/exam-weeks', {
@@ -859,12 +900,12 @@ async function initParseConfirm() {
                     body: JSON.stringify(allocData),
                 });
                 showToast('Allocation saved!');
+                window.location.href = `allocation.html?weekId=${newWeek.id}`;
             } catch (err) {
                 showToast('Failed to save allocation: ' + err.message);
                 return;
             }
         }
-        window.location.href = 'allocation.html';
     });
 }
 
@@ -875,7 +916,6 @@ function renderParseTable(exams) {
         tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted">No exams.</td></tr>';
         return;
     }
-    const subjectOptions = getAllSubjectsWithOthers().map(s => `<option value="${s}">`).join('');
     tbody.innerHTML = exams.map((e, i) => `
         <tr>
             <td>${i+1}</td>
@@ -903,14 +943,19 @@ window.removeParsedExam = function(idx) {
 };
 
 // ============================================================
-//  ALLOCATION PAGE
+//  ALLOCATION PAGE (handle weekId)
 // ============================================================
-
 async function initAllocation() {
     const loaded = await loadUserData();
     if (!loaded || !STORE.isLoggedIn) {
         window.location.href = 'login.html';
         return;
+    }
+    // Read weekId from URL
+    const urlParams = new URLSearchParams(window.location.search);
+    const weekId = urlParams.get('weekId');
+    if (weekId) {
+        STORE.currentExamWeekId = weekId;
     }
     const week = getCurrentExamWeek();
     if (!week) {
@@ -940,7 +985,7 @@ async function initAllocation() {
     // Confirm button
     document.getElementById('final-confirm-btn')?.addEventListener('click', finalConfirmAllocation);
     document.getElementById('back-to-parse-btn')?.addEventListener('click', function() {
-        window.location.href = 'parse-confirm.html';
+        window.location.href = `parse-confirm.html?weekId=${STORE.currentExamWeekId}`;
     });
     document.getElementById('edit-alloc-btn')?.addEventListener('click', function() {
         STORE.editingAlloc = !STORE.editingAlloc;
@@ -974,6 +1019,7 @@ async function initAllocation() {
     setAllocMode('exam');
 }
 
+// ---- Allocation helper functions (unchanged) ----
 function addTeacherToExam(examId, teacherId) {
     const alloc = STORE.allocated;
     if (!alloc) return;
@@ -988,7 +1034,6 @@ function addTeacherToExam(examId, teacherId) {
         const hours = (new Date(section.endTime) - new Date(section.startTime)) / (1000 * 60 * 60);
         alloc.teacherHours[teacherId] = (alloc.teacherHours[teacherId] || 0) + hours;
     }
-    // Update week (in memory only; we don't persist to server for simplicity)
     const week = getCurrentExamWeek();
     if (week) {
         week.allocations = JSON.parse(JSON.stringify(alloc));
@@ -1113,18 +1158,23 @@ window.finalConfirmAllocation = function() {
         week.allocations = JSON.parse(JSON.stringify(alloc));
     }
     STORE.finalAllocations = JSON.parse(JSON.stringify(alloc));
-    window.location.href = 'final.html';
+    window.location.href = `final.html?weekId=${STORE.currentExamWeekId}`;
 };
 
 // ============================================================
 //  FINAL PAGE
 // ============================================================
-
 async function initFinal() {
     const loaded = await loadUserData();
     if (!loaded || !STORE.isLoggedIn) {
         window.location.href = 'login.html';
         return;
+    }
+    // Read weekId from URL
+    const urlParams = new URLSearchParams(window.location.search);
+    const weekId = urlParams.get('weekId');
+    if (weekId) {
+        STORE.currentExamWeekId = weekId;
     }
     if (!STORE.finalAllocations) {
         const week = getCurrentExamWeek();
@@ -1154,7 +1204,7 @@ async function initFinal() {
     });
     document.getElementById('email-alloc-btn')?.addEventListener('click', emailAllocations);
     document.getElementById('edit-final-btn')?.addEventListener('click', function() {
-        window.location.href = 'allocation.html';
+        window.location.href = `allocation.html?weekId=${STORE.currentExamWeekId}`;
     });
     document.getElementById('back-to-dashboard')?.addEventListener('click', function() {
         window.location.href = 'dashboard.html';
@@ -1250,7 +1300,6 @@ function emailAllocations() {
 // ============================================================
 //  DATABASE PAGE
 // ============================================================
-
 async function initDatabase() {
     const loaded = await loadUserData();
     if (!loaded || !STORE.isLoggedIn) {
@@ -1284,7 +1333,6 @@ function renderDatabase() {
 // ============================================================
 //  DATABASE UPLOAD
 // ============================================================
-
 async function initDatabaseUpload() {
     const loaded = await loadUserData();
     if (!loaded || !STORE.isLoggedIn) {
@@ -1422,7 +1470,6 @@ async function confirmDbUpload() {
 // ============================================================
 //  DATABASE EDIT
 // ============================================================
-
 async function initDatabaseEdit() {
     const loaded = await loadUserData();
     if (!loaded || !STORE.isLoggedIn) {
@@ -1530,7 +1577,6 @@ window.deleteTeacher = async function(id) {
 //  GLOBAL INIT
 // ============================================================
 document.addEventListener('DOMContentLoaded', function() {
-    // Check if we have a token; if so, we'll load user data
     const token = getToken();
     if (token) {
         loadUserData().catch(() => {});
