@@ -253,6 +253,21 @@ app.post('/api/send-email', authenticate, async (req, res) => {
   }
 });
 
+
+// Welcome route (optional)
+app.get('/', (req, res) => {
+    res.json({
+        message: 'Invigiflow API is running!',
+        endpoints: {
+            auth: '/api/auth',
+            teachers: '/api/teachers',
+            examWeeks: '/api/exam-weeks',
+            exams: '/api/exams',
+            allocations: '/api/allocations'
+        }
+    });
+});
+
 // Start server
 app.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`);
