@@ -728,6 +728,7 @@ function confirmExamList() {
 }
 
 // ---------- PARSE CONFIRM ----------
+// ---------- PARSE CONFIRM ----------
 async function initParseConfirm() {
     const loaded = await loadUserData();
     if (!loaded || !STORE.isLoggedIn) {
@@ -842,24 +843,35 @@ async function initParseConfirm() {
         const teachers = STORE.teachers;
         const alloc = runAllocation(exams, teachers, STORE.availability);
         STORE.allocated = alloc;
-        const settings = STORE._tempSettings || { name: 'Exam Week', start: '', end: '', timezone: 'UTC+8' };
+        
+        // Get the week (existing or new)
         let week = getCurrentExamWeek();
         
         try {
             if (week) {
-                // Update existing week with ALL data
+                // --- UPDATE EXISTING WEEK: KEEP NAME/DATE UNCHANGED ---
+                // Update exams and allocations only
+                week.exams = exams.map(e => ({ ...e }));
+                week.allocations = {
+                    assignments: alloc.assignments,
+                    sections: alloc.sections,
+                    teacherHours: alloc.teacherHours,
+                };
+                week.finalAllocations = null;
+                
+                // Save the week with its original name/date (do not overwrite)
                 await apiFetch(`/exam-weeks/${week.id}`, {
                     method: 'PUT',
                     body: JSON.stringify({
-                        name: settings.name || week.name || 'Exam Week',
-                        startDate: settings.start || week.startDate || '',
-                        endDate: settings.end || week.endDate || '',
-                        timezone: settings.timezone || week.timezone || 'UTC+8',
-                        exams: exams.map(e => ({ ...e })),
+                        name: week.name,          // keep existing
+                        startDate: week.startDate,
+                        endDate: week.endDate,
+                        timezone: week.timezone,
+                        exams: week.exams,
                     }),
                 });
                 
-                // Save full allocation object
+                // Save allocations
                 const allocData = {
                     examWeekId: week.id,
                     allocations: {
@@ -873,23 +885,15 @@ async function initParseConfirm() {
                     body: JSON.stringify(allocData),
                 });
                 
-                // Reload weeks to get updated data
+                // Reload weeks to sync STORE
                 const updatedWeeks = await apiFetch('/exam-weeks');
                 STORE.examWeeks = updatedWeeks;
-                // Update the local week reference
-                week = getCurrentExamWeek();
-                if (week) {
-                    week.allocations = {
-                        assignments: alloc.assignments,
-                        sections: alloc.sections,
-                        teacherHours: alloc.teacherHours,
-                    };
-                }
                 STORE.allocated = alloc;
                 showToast('Allocation saved!');
                 window.location.href = `allocation.html?weekId=${week.id}`;
             } else {
-                // Create new week
+                // --- CREATE NEW WEEK (use settings from _tempSettings) ---
+                const settings = STORE._tempSettings || { name: 'Exam Week', start: '', end: '', timezone: 'UTC+8' };
                 const newWeek = await apiFetch('/exam-weeks', {
                     method: 'POST',
                     body: JSON.stringify({
