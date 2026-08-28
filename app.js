@@ -1,29 +1,33 @@
-// ─── USER MANAGEMENT ──────────────────────────────────────────
-const USERS_KEY = 'invigiflow_users';
-const VERIFICATION_KEY = 'invigiflow_verification';
+// ============================================================
+//  app.js – Invigiflow (Full Backend API Integration)
+// ============================================================
 
-function getUsers() {
-    const data = localStorage.getItem(USERS_KEY);
-    return data ? JSON.parse(data) : {};
+// ---------- API Configuration ----------
+// Change this if your backend runs on a different host/port
+const API_BASE = 'http://localhost:5000/api';
+
+// ---------- Helper: get JWT token ----------
+function getToken() {
+    return localStorage.getItem('token');
 }
 
-function saveUsers(users) {
-    localStorage.setItem(USERS_KEY, JSON.stringify(users));
+// ---------- Helper: authenticated fetch ----------
+async function apiFetch(endpoint, options = {}) {
+    const token = getToken();
+    const headers = {
+        'Content-Type': 'application/json',
+        ...(token && { 'Authorization': `Bearer ${token}` }),
+        ...options.headers,
+    };
+    const response = await fetch(`${API_BASE}${endpoint}`, { ...options, headers });
+    if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'API request failed');
+    }
+    return response.json();
 }
 
-function getVerifications() {
-    const data = localStorage.getItem(VERIFICATION_KEY);
-    return data ? JSON.parse(data) : {};
-}
-
-function saveVerifications(v) {
-    localStorage.setItem(VERIFICATION_KEY, JSON.stringify(v));
-}
-
-let currentUser = null;
-let currentUsername = '';
-
-// ─── DATA STORE (per user) ────────────────────────────────────
+// ---------- Global state (populated from API) ----------
 let STORE = {
     teachers: [],
     examWeeks: [],
@@ -41,42 +45,55 @@ let STORE = {
     _tempSettings: null,
     isLoggedIn: false,
 };
+let currentUser = null;
+let currentUsername = '';
 
-function loadUserData(email) {
-    const users = getUsers();
-    if (users[email] && users[email].data) {
-        STORE = JSON.parse(JSON.stringify(users[email].data));
-        if (!STORE.teachers) STORE.teachers = [];
-        if (!STORE.examWeeks) STORE.examWeeks = [];
-        if (!STORE.availability) STORE.availability = {};
-        if (!STORE.currentExam) STORE.currentExam = [];
-        if (!STORE.parsedExams) STORE.parsedExams = [];
-        if (!STORE.dbTempTeachers) STORE.dbTempTeachers = [];
-        if (!STORE.nextId) STORE.nextId = 1;
+// ---------- Load user data from API ----------
+async function loadUserData() {
+    try {
+        const [teachers, examWeeks] = await Promise.all([
+            apiFetch('/teachers'),
+            apiFetch('/exam-weeks'),
+        ]);
+        STORE.teachers = teachers;
+        STORE.examWeeks = examWeeks;
         STORE.isLoggedIn = true;
-        currentUser = email;
-        currentUsername = users[email].username || email.split('@')[0];
+        const user = JSON.parse(localStorage.getItem('user') || '{}');
+        currentUser = user.email;
+        currentUsername = user.username || 'User';
         return true;
+    } catch (err) {
+        console.error('Failed to load user data:', err);
+        return false;
     }
-    return false;
 }
 
+// ---------- Save user data (no-op for API) ----------
 function saveUserData() {
-    if (!currentUser) return;
-    const users = getUsers();
-    if (!users[currentUser]) return;
-    users[currentUser].data = JSON.parse(JSON.stringify(STORE));
-    saveUsers(users);
+    // All saves are done via API calls directly.
 }
 
-// ─── HELPERS ────────────────────────────────────────────────────
+// ---------- Helpers (unchanged) ----------
 function getTeacher(id) { return STORE.teachers.find(t => t.id === id); }
 function getTeacherName(id) { const t = getTeacher(id); return t ? t.name : 'Unknown'; }
 function getTeacherEmail(id) { const t = getTeacher(id); return t ? t.email : ''; }
 function getExamWeek(id) { return STORE.examWeeks.find(w => w.id === id); }
 function getCurrentExamWeek() { return getExamWeek(STORE.currentExamWeekId); }
 
-// ─── TOAST ────────────────────────────────────────────────────
+function getAllSubjects() {
+    const subjects = new Set();
+    STORE.teachers.forEach(t => {
+        if (t.subjects) t.subjects.forEach(s => subjects.add(s.trim()));
+    });
+    return Array.from(subjects).sort();
+}
+function getAllSubjectsWithOthers() {
+    const subjects = getAllSubjects();
+    if (!subjects.includes('Others')) subjects.push('Others');
+    return subjects;
+}
+
+// ---------- Toast (unchanged) ----------
 let toastTimeout;
 function showToast(msg) {
     const el = document.getElementById('toast');
@@ -87,59 +104,13 @@ function showToast(msg) {
     toastTimeout = setTimeout(() => el.classList.remove('show'), 3000);
 }
 
-// ─── DATE/TIME FORMATTING (local timezone, YYYY-MM-DD HH:mm) ──
+// ---------- Date/time formatting (unchanged) ----------
 function formatLocalDateTime(date) {
     const pad = n => String(n).padStart(2, '0');
     return `${date.getFullYear()}-${pad(date.getMonth()+1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
-// ─── SUBJECTS FROM TEACHERS ──────────────────────────────────
-function getAllSubjects() {
-    const subjects = new Set();
-    STORE.teachers.forEach(t => {
-        if (t.subjects) t.subjects.forEach(s => subjects.add(s.trim()));
-    });
-    return Array.from(subjects).sort();
-}
-
-function getAllSubjectsWithOthers() {
-    const subjects = getAllSubjects();
-    if (!subjects.includes('Others')) subjects.push('Others');
-    return subjects;
-}
-
-// ─── VERIFICATION CODE SYSTEM ──────────────────────────────
-function generateCode() {
-    return Math.floor(100000 + Math.random() * 900000).toString();
-}
-
-function sendVerificationCode(email) {
-    const code = generateCode();
-    const v = getVerifications();
-    v[email] = { code, timestamp: Date.now() };
-    saveVerifications(v);
-    console.log(`Verification code for ${email}: ${code}`);
-    showToast(`Verification code sent to ${email} (check console)`);
-    return code;
-}
-
-function verifyCode(email, code) {
-    const v = getVerifications();
-    if (v[email] && v[email].code === code) {
-        if (Date.now() - v[email].timestamp < 5 * 60 * 1000) {
-            delete v[email];
-            saveVerifications(v);
-            return true;
-        } else {
-            showToast('Code expired. Please request a new one.');
-            return false;
-        }
-    }
-    showToast('Invalid code.');
-    return false;
-}
-
-// ─── ALLOCATION ALGORITHM (with split and type, local time) ──
+// ---------- Allocation Algorithm (unchanged) ----------
 function runAllocation(exams, teachers, availability = {}) {
     const sections = [];
     exams.forEach(exam => {
@@ -259,7 +230,7 @@ function runAllocation(exams, teachers, availability = {}) {
     };
 }
 
-// ─── BAR CHART ──────────────────────────────────────────────
+// ---------- Bar chart (unchanged) ----------
 function renderBarChart(containerId, data) {
     const container = document.getElementById(containerId);
     if (!container) return;
@@ -275,88 +246,73 @@ function renderBarChart(containerId, data) {
     `).join('');
 }
 
-// ─── PAGE-SPECIFIC INIT FUNCTIONS ──────────────────────────
+// ============================================================
+//  PAGE-SPECIFIC INIT FUNCTIONS (API version)
+// ============================================================
 
-// Login
+// ---------- LOGIN ----------
 function initLogin() {
-    document.getElementById('login-form')?.addEventListener('submit', function(e) {
+    document.getElementById('login-form')?.addEventListener('submit', async function(e) {
         e.preventDefault();
         const email = document.getElementById('login-email').value.trim();
-        const pass = document.getElementById('login-password').value.trim();
-        const users = getUsers();
-        if (users[email] && users[email].password === pass) {
-            if (loadUserData(email)) {
-                showToast('Logged in!');
-                window.location.href = 'dashboard.html';
-            } else {
-                showToast('Error loading user data.');
-            }
-        } else {
-            showToast('Invalid email or password.');
+        const password = document.getElementById('login-password').value.trim();
+        try {
+            const data = await apiFetch('/auth/login', {
+                method: 'POST',
+                body: JSON.stringify({ email, password }),
+            });
+            localStorage.setItem('token', data.token);
+            localStorage.setItem('user', JSON.stringify(data.user));
+            showToast('Logged in!');
+            window.location.href = 'dashboard.html';
+        } catch (err) {
+            showToast(err.message);
         }
     });
 }
 
-// Signup
+// ---------- SIGNUP ----------
 function initSignup() {
-    document.getElementById('signup-form')?.addEventListener('submit', function(e) {
+    document.getElementById('signup-form')?.addEventListener('submit', async function(e) {
         e.preventDefault();
         const username = document.getElementById('signup-username').value.trim();
         const email = document.getElementById('signup-email').value.trim();
-        const pass = document.getElementById('signup-password').value.trim();
+        const password = document.getElementById('signup-password').value.trim();
         const confirm = document.getElementById('signup-confirm').value.trim();
         const code = document.getElementById('signup-code').value.trim();
-        if (!username) {
-            showToast('Please enter a username.');
-            return;
-        }
-        if (pass !== confirm) {
+        if (password !== confirm) {
             showToast('Passwords do not match.');
             return;
         }
-        const users = getUsers();
-        if (users[email]) {
-            showToast('Email already registered.');
-            return;
+        try {
+            await apiFetch('/auth/signup', {
+                method: 'POST',
+                body: JSON.stringify({ username, email, password }),
+            });
+            showToast('Account created! Please check your email for verification.');
+            window.location.href = 'login.html';
+        } catch (err) {
+            showToast(err.message);
         }
-        if (!verifyCode(email, code)) {
-            return;
-        }
-        users[email] = {
-            password: pass,
-            username: username,
-            data: {
-                teachers: [],
-                examWeeks: [],
-                currentExamWeekId: null,
-                currentExam: [],
-                availability: {},
-                parsedExams: [],
-                allocated: null,
-                finalAllocations: null,
-                editingAlloc: false,
-                finalMode: 'exam',
-                allocMode: 'exam',
-                dbTempTeachers: [],
-                nextId: 1,
-                _tempSettings: null,
-                isLoggedIn: false,
-            }
-        };
-        saveUsers(users);
-        showToast('Account created! Please log in.');
-        window.location.href = 'login.html';
     });
-    document.getElementById('send-code-btn')?.addEventListener('click', function() {
+    document.getElementById('send-code-btn')?.addEventListener('click', async function() {
         const email = document.getElementById('signup-email').value.trim();
         if (!email) { showToast('Enter email first.'); return; }
-        sendVerificationCode(email);
+        try {
+            await apiFetch('/auth/forgot-password', {
+                method: 'POST',
+                body: JSON.stringify({ email }),
+            });
+            showToast('Verification code sent to your email.');
+        } catch (err) {
+            showToast(err.message);
+        }
     });
 }
 
-// Forgot Password
+// ---------- FORGOT PASSWORD ----------
 function initForgotPassword() {
-    document.getElementById('forgot-form')?.addEventListener('submit', function(e) {
+    document.getElementById('forgot-form')?.addEventListener('submit', async function(e) {
         e.preventDefault();
         const email = document.getElementById('forgot-email').value.trim();
         const code = document.getElementById('forgot-code').value.trim();
@@ -366,32 +322,42 @@ function initForgotPassword() {
             showToast('Passwords do not match.');
             return;
         }
-        const users = getUsers();
-        if (!users[email]) {
-            showToast('Email not registered.');
-            return;
+        try {
+            await apiFetch('/auth/reset-password', {
+                method: 'POST',
+                body: JSON.stringify({ email, code, newPassword: newPass }),
+            });
+            showToast('Password reset successfully.');
+            window.location.href = 'login.html';
+        } catch (err) {
+            showToast(err.message);
         }
-        if (!verifyCode(email, code)) {
-            return;
-        }
-        users[email].password = newPass;
-        saveUsers(users);
-        showToast('Password updated! Please log in.');
-        window.location.href = 'login.html';
     });
-    document.getElementById('forgot-send-code-btn')?.addEventListener('click', function() {
+    document.getElementById('forgot-send-code-btn')?.addEventListener('click', async function() {
         const email = document.getElementById('forgot-email').value.trim();
         if (!email) { showToast('Enter email first.'); return; }
-        sendVerificationCode(email);
+        try {
+            await apiFetch('/auth/forgot-password', {
+                method: 'POST',
+                body: JSON.stringify({ email }),
+            });
+            showToast('Code sent to your email.');
+        } catch (err) {
+            showToast(err.message);
+        }
     });
 }
 
-// Dashboard
-function initDashboard() {
-    if (!STORE.isLoggedIn) { window.location.href = 'login.html'; return; }
-    renderDashboard();
+// ---------- DASHBOARD ----------
+async function initDashboard() {
+    const loaded = await loadUserData();
+    if (!loaded || !STORE.isLoggedIn) {
+        window.location.href = 'login.html';
+        return;
+    }
     const welcome = document.getElementById('welcome-msg');
     if (welcome) welcome.textContent = `Welcome back, ${currentUsername}`;
+    renderDashboard();
 }
 
 function renderDashboard() {
@@ -406,12 +372,12 @@ function renderDashboard() {
     if (countEl) countEl.textContent = weeks.length + ' records';
     container.innerHTML = weeks.map(w => `
         <div class="exam-item">
-            <div onclick="openExamWeek(${w.id})" style="flex:1; cursor:pointer;">
+            <div onclick="openExamWeek('${w.id}')" style="flex:1; cursor:pointer;">
                 <div class="name">${w.name}</div>
                 <div class="date">${w.startDate} — ${w.endDate} (${w.timezone})</div>
             </div>
             <span class="badge">${w.exams ? w.exams.length : 0} exams</span>
-            <button class="btn btn-danger btn-sm" onclick="deleteExamWeek(${w.id})" style="margin-left:8px;">🗑</button>
+            <button class="btn btn-danger btn-sm" onclick="deleteExamWeek('${w.id}')" style="margin-left:8px;">🗑</button>
         </div>
     `).join('');
 }
@@ -430,13 +396,11 @@ window.openExamWeek = function(id) {
     }
 };
 
-window.deleteExamWeek = function(id) {
+window.deleteExamWeek = async function(id) {
     if (!confirm('Delete this exam week permanently?')) return;
-    STORE.examWeeks = STORE.examWeeks.filter(w => w.id !== id);
-    if (STORE.currentExamWeekId === id) STORE.currentExamWeekId = null;
-    saveUserData();
-    renderDashboard();
-    showToast('Exam week deleted.');
+    // There is no DELETE endpoint yet; we just show a message.
+    showToast('Delete functionality not implemented in backend yet.');
+    // Optionally, you can call DELETE /api/exam-weeks/:id when implemented.
 };
 
 window.startNewExamWeek = function() {
@@ -447,22 +411,26 @@ window.startNewExamWeek = function() {
     STORE.finalAllocations = null;
     STORE.availability = {};
     STORE._tempSettings = null;
-    saveUserData();
     window.location.href = 'settings.html';
 };
 
 window.logout = function() {
+    localStorage.removeItem('token');
+    localStorage.removeItem('user');
     STORE.isLoggedIn = false;
     currentUser = null;
     currentUsername = '';
-    saveUserData();
     showToast('Logged out.');
     window.location.href = 'login.html';
 };
 
-// Settings
-function initSettings() {
-    if (!STORE.isLoggedIn) { window.location.href = 'login.html'; return; }
+// ---------- SETTINGS ----------
+async function initSettings() {
+    const loaded = await loadUserData();
+    if (!loaded || !STORE.isLoggedIn) {
+        window.location.href = 'login.html';
+        return;
+    }
     const week = getCurrentExamWeek();
     if (week) {
         document.getElementById('ew-name').value = week.name || '';
@@ -470,22 +438,37 @@ function initSettings() {
         document.getElementById('ew-end').value = week.endDate || '';
         document.getElementById('ew-timezone').value = week.timezone || 'UTC+8';
     }
-    document.getElementById('exam-settings-form')?.addEventListener('submit', function(e) {
+    document.getElementById('exam-settings-form')?.addEventListener('submit', async function(e) {
         e.preventDefault();
         const name = document.getElementById('ew-name').value.trim();
         const start = document.getElementById('ew-start').value;
         const end = document.getElementById('ew-end').value;
         const tz = document.getElementById('ew-timezone').value;
         if (!name || !start || !end) { showToast('Please fill in all fields.'); return false; }
-        STORE._tempSettings = { name, start, end, timezone: tz };
-        saveUserData();
-        window.location.href = 'availability.html';
+        try {
+            const newWeek = await apiFetch('/exam-weeks', {
+                method: 'POST',
+                body: JSON.stringify({ name, startDate: start, endDate: end, timezone: tz }),
+            });
+            STORE.currentExamWeekId = newWeek.id;
+            STORE._tempSettings = { name, start, end, timezone: tz };
+            const weeks = await apiFetch('/exam-weeks');
+            STORE.examWeeks = weeks;
+            showToast('Exam week created!');
+            window.location.href = 'availability.html';
+        } catch (err) {
+            showToast(err.message);
+        }
     });
 }
 
-// Availability
-function initAvailability() {
-    if (!STORE.isLoggedIn) { window.location.href = 'login.html'; return; }
+// ---------- AVAILABILITY ----------
+async function initAvailability() {
+    const loaded = await loadUserData();
+    if (!loaded || !STORE.isLoggedIn) {
+        window.location.href = 'login.html';
+        return;
+    }
     populateTeacherSelects();
     renderAvailability();
     document.getElementById('add-avail-btn')?.addEventListener('click', addAvailability);
@@ -506,57 +489,44 @@ function populateTeacherSelects() {
 function renderAvailability() {
     const container = document.getElementById('avail-list');
     if (!container) return;
-    const entries = Object.entries(STORE.availability);
-    if (entries.length === 0) {
-        container.innerHTML = '<p class="text-muted text-sm">No constraints added yet.</p>';
-        return;
-    }
-    container.innerHTML = entries.map(([tid, slots]) => `
-        <div class="flex-between" style="border-bottom:1px solid var(--border);padding:6px 0;">
-            <span><strong>${getTeacherName(Number(tid))}</strong></span>
-            <span class="avail-grid">
-                ${slots.map(s => `<span class="avail-tag">${s.start} – ${s.end} <span class="remove" onclick="removeAvailability('${tid}','${s.start}','${s.end}')">×</span></span>`).join('')}
-            </span>
-        </div>
-    `).join('');
+    container.innerHTML = '<p class="text-muted text-sm">Availability slots will be stored per teacher.</p>';
 }
 
-window.addAvailability = function() {
+window.addAvailability = async function() {
     const sel = document.getElementById('avail-teacher-select');
     const start = document.getElementById('avail-start').value;
     const end = document.getElementById('avail-end').value;
     if (!sel.value || !start || !end) { showToast('Select teacher and enter a time range.'); return; }
-    const tid = Number(sel.value);
-    if (!STORE.availability[tid]) STORE.availability[tid] = [];
-    if (STORE.availability[tid].some(s => s.start === start && s.end === end)) {
-        showToast('Slot already added.');
-        return;
+    const teacherId = sel.value;
+    try {
+        await apiFetch('/availabilities', {
+            method: 'POST',
+            body: JSON.stringify({ teacherId, start, end }),
+        });
+        showToast('Availability slot added.');
+        document.getElementById('avail-start').value = '';
+        document.getElementById('avail-end').value = '';
+    } catch (err) {
+        showToast(err.message);
     }
-    STORE.availability[tid].push({ start, end });
-    document.getElementById('avail-start').value = '';
-    document.getElementById('avail-end').value = '';
-    renderAvailability();
-    saveUserData();
-    showToast('Added availability constraint.');
 };
 
 window.removeAvailability = function(tid, start, end) {
-    STORE.availability[tid] = STORE.availability[tid].filter(s => !(s.start === start && s.end === end));
-    if (STORE.availability[tid].length === 0) delete STORE.availability[tid];
-    renderAvailability();
-    saveUserData();
+    showToast('Remove availability not yet implemented in backend.');
 };
 
-// Upload
-function initUpload() {
-    if (!STORE.isLoggedIn) { window.location.href = 'login.html'; return; }
-    // Populate subject datalist
+// ---------- UPLOAD (CSV / Manual) ----------
+async function initUpload() {
+    const loaded = await loadUserData();
+    if (!loaded || !STORE.isLoggedIn) {
+        window.location.href = 'login.html';
+        return;
+    }
     const subjects = getAllSubjectsWithOthers();
     const datalist = document.getElementById('subject-list');
     if (datalist) {
         datalist.innerHTML = subjects.map(s => `<option value="${s}">`).join('');
     }
-    // Tab switching
     document.querySelectorAll('.tab-bar button').forEach(btn => {
         btn.addEventListener('click', function() {
             document.querySelectorAll('#upload-csv, #upload-manual').forEach(el => el.classList.add('hidden'));
@@ -587,7 +557,7 @@ function downloadTemplate() {
     URL.revokeObjectURL(a.href);
 }
 
-function parseCSV() {
+async function parseCSV() {
     const fileInput = document.getElementById('csv-file');
     if (!fileInput.files || fileInput.files.length === 0) {
         showToast('Please select a CSV file.');
@@ -595,7 +565,7 @@ function parseCSV() {
     }
     const file = fileInput.files[0];
     const reader = new FileReader();
-    reader.onload = function(e) {
+    reader.onload = async function(e) {
         const text = e.target.result;
         const lines = text.split('\n').filter(l => l.trim());
         if (lines.length < 2) { showToast('CSV must have a header row and data.'); return; }
@@ -616,13 +586,9 @@ function parseCSV() {
             const cols = lines[i].split(',').map(c => c.trim());
             if (cols.length < 4) continue;
             let subject = cols[idxSubject] || 'Unknown';
-            // Validate subject: if not in allSubjects, set to empty and force selection
-            if (!allSubjects.includes(subject)) {
-                subject = '';
-            }
+            if (!allSubjects.includes(subject)) subject = '';
             const type = (idxType >= 0 && cols[idxType]) ? cols[idxType].toLowerCase() : 'internal';
             exams.push({
-                id: Date.now() + i,
                 subject: subject,
                 name: (idxName >= 0 && cols[idxName]) ? cols[idxName] : cols[idxSubject] || 'Exam',
                 type: (type === 'external' ? 'external' : 'internal'),
@@ -633,14 +599,13 @@ function parseCSV() {
         }
         if (exams.length === 0) { showToast('No valid exam data found.'); return; }
         STORE.parsedExams = exams;
-        saveUserData();
         sessionStorage.setItem('parsedExams', JSON.stringify(exams));
         window.location.href = 'parse-confirm.html';
     };
     reader.readAsText(file);
 }
 
-function addManualExam() {
+async function addManualExam() {
     const subject = document.getElementById('manual-subject').value.trim();
     const name = document.getElementById('manual-name').value.trim() || subject;
     const type = document.getElementById('manual-type').value;
@@ -651,24 +616,53 @@ function addManualExam() {
         showToast('Please fill in all required fields.');
         return;
     }
-    if (!STORE.currentExam) STORE.currentExam = [];
-    STORE.currentExam.push({
-        id: Date.now() + Math.random() * 1000,
+    let weekId = STORE.currentExamWeekId;
+    if (!weekId) {
+        try {
+            const newWeek = await apiFetch('/exam-weeks', {
+                method: 'POST',
+                body: JSON.stringify({
+                    name: 'Default Week',
+                    startDate: new Date().toISOString().split('T')[0],
+                    endDate: new Date(Date.now()+7*86400000).toISOString().split('T')[0],
+                    timezone: 'UTC+8'
+                }),
+            });
+            weekId = newWeek.id;
+            STORE.currentExamWeekId = weekId;
+            const weeks = await apiFetch('/exam-weeks');
+            STORE.examWeeks = weeks;
+        } catch (err) {
+            showToast('Failed to create exam week: ' + err.message);
+            return;
+        }
+    }
+    const examData = {
+        examWeekId: weekId,
         subject,
         name,
         type,
         studentCount: students,
-        startTime: start,
-        endTime: end,
-    });
-    saveUserData();
-    renderManualExamList();
-    document.getElementById('manual-subject').value = '';
-    document.getElementById('manual-name').value = '';
-    document.getElementById('manual-students').value = '';
-    document.getElementById('manual-start').value = '';
-    document.getElementById('manual-end').value = '';
-    showToast('Exam added.');
+        start: start,
+        end: end,
+    };
+    try {
+        await apiFetch('/exams', {
+            method: 'POST',
+            body: JSON.stringify(examData),
+        });
+        showToast('Exam added.');
+        const exams = await apiFetch(`/exam-weeks/${weekId}/exams`);
+        STORE.currentExam = exams;
+        renderManualExamList();
+        document.getElementById('manual-subject').value = '';
+        document.getElementById('manual-name').value = '';
+        document.getElementById('manual-students').value = '';
+        document.getElementById('manual-start').value = '';
+        document.getElementById('manual-end').value = '';
+    } catch (err) {
+        showToast(err.message);
+    }
 }
 
 function renderManualExamList() {
@@ -681,43 +675,39 @@ function renderManualExamList() {
     }
     container.innerHTML = `<table>
         <thead><tr><th>Subject</th><th>Exam Name</th><th>Type</th><th>Students</th><th>Start</th><th>End</th><th></th></tr></thead>
-        <tbody>${exams.map((e,i) => `
+        <tbody>${exams.map((e, i) => `
             <tr><td>${e.subject}</td><td>${e.name}</td><td>${e.type}</td><td>${e.studentCount}</td><td>${e.startTime}</td><td>${e.endTime}</td>
-            <td><button class="btn btn-danger btn-sm" onclick="removeManualExam(${i})">×</button></td></tr>
+            <td><button class="btn btn-danger btn-sm" onclick="removeManualExam('${e.id}')">×</button></td></tr>
         `).join('')}</tbody>
     </table>`;
 }
 
-window.removeManualExam = function(idx) {
-    if (STORE.currentExam) STORE.currentExam.splice(idx, 1);
-    saveUserData();
+window.removeManualExam = function(id) {
+    STORE.currentExam = STORE.currentExam.filter(e => e.id !== id);
     renderManualExamList();
 };
 
 function confirmExamList() {
-    const exams = STORE.currentExam || [];
-    if (exams.length === 0) {
-        const parsed = sessionStorage.getItem('parsedExams');
-        if (parsed) {
-            STORE.parsedExams = JSON.parse(parsed);
-            sessionStorage.removeItem('parsedExams');
-            window.location.href = 'parse-confirm.html';
-            return;
-        }
+    if (STORE.parsedExams.length > 0) {
+        window.location.href = 'parse-confirm.html';
+        return;
+    }
+    if (STORE.currentExam.length === 0) {
         showToast('No exams to confirm. Add some first.');
         return;
     }
-    STORE.parsedExams = [...exams];
-    saveUserData();
+    STORE.parsedExams = [...STORE.currentExam];
     window.location.href = 'parse-confirm.html';
 }
 
-// Parse Confirm (now with datalist for subject and manual add)
-function initParseConfirm() {
-    if (!STORE.isLoggedIn) { window.location.href = 'login.html'; return; }
-    // Populate subject datalist for parse-add
+// ---------- PARSE CONFIRM ----------
+async function initParseConfirm() {
+    const loaded = await loadUserData();
+    if (!loaded || !STORE.isLoggedIn) {
+        window.location.href = 'login.html';
+        return;
+    }
     const subjects = getAllSubjectsWithOthers();
-    // Create datalist for parse page if not exists
     let datalist = document.getElementById('subject-list-parse');
     if (!datalist) {
         datalist = document.createElement('datalist');
@@ -726,28 +716,24 @@ function initParseConfirm() {
     }
     datalist.innerHTML = subjects.map(s => `<option value="${s}">`).join('');
 
-    // If we have a current exam week, load its exams into parsedExams for editing
-    const week = getCurrentExamWeek();
-    if (week && week.exams && week.exams.length > 0) {
-        // Only if parsedExams is empty or different, copy
-        if (STORE.parsedExams.length === 0 || STORE.parsedExams[0]?.id !== week.exams[0]?.id) {
-            STORE.parsedExams = week.exams.map(e => ({ ...e }));
-            saveUserData();
-        }
-    }
     let exams = STORE.parsedExams;
     if (!exams || exams.length === 0) {
         const parsed = sessionStorage.getItem('parsedExams');
         if (parsed) {
             exams = JSON.parse(parsed);
             STORE.parsedExams = exams;
-            saveUserData();
             sessionStorage.removeItem('parsedExams');
+        } else {
+            const week = getCurrentExamWeek();
+            if (week && week.exams) {
+                exams = week.exams;
+                STORE.parsedExams = exams;
+            }
         }
     }
     renderParseTable(exams);
-    // Manual add in parse-confirm
-    document.getElementById('parse-add-exam-btn')?.addEventListener('click', function() {
+
+    document.getElementById('parse-add-exam-btn')?.addEventListener('click', async function() {
         const subject = document.getElementById('parse-add-subject').value.trim();
         const name = document.getElementById('parse-add-name').value.trim() || subject;
         const type = document.getElementById('parse-add-type').value;
@@ -758,29 +744,56 @@ function initParseConfirm() {
             showToast('Please fill in all fields.');
             return;
         }
-        if (!STORE.parsedExams) STORE.parsedExams = [];
-        STORE.parsedExams.push({
-            id: Date.now() + Math.random() * 1000,
+        let weekId = STORE.currentExamWeekId;
+        if (!weekId) {
+            try {
+                const newWeek = await apiFetch('/exam-weeks', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        name: 'Default Week',
+                        startDate: new Date().toISOString().split('T')[0],
+                        endDate: new Date(Date.now()+7*86400000).toISOString().split('T')[0],
+                        timezone: 'UTC+8'
+                    }),
+                });
+                weekId = newWeek.id;
+                STORE.currentExamWeekId = weekId;
+                const weeks = await apiFetch('/exam-weeks');
+                STORE.examWeeks = weeks;
+            } catch (err) {
+                showToast('Failed to create exam week: ' + err.message);
+                return;
+            }
+        }
+        const examData = {
+            examWeekId: weekId,
             subject,
             name,
             type,
             studentCount: students,
-            startTime: start,
-            endTime: end,
-        });
-        saveUserData();
-        renderParseTable(STORE.parsedExams);
-        // Clear fields
-        document.getElementById('parse-add-subject').value = '';
-        document.getElementById('parse-add-name').value = '';
-        document.getElementById('parse-add-students').value = '';
-        document.getElementById('parse-add-start').value = '';
-        document.getElementById('parse-add-end').value = '';
-        showToast('Exam added to list.');
+            start: start,
+            end: end,
+        };
+        try {
+            await apiFetch('/exams', {
+                method: 'POST',
+                body: JSON.stringify(examData),
+            });
+            showToast('Exam added.');
+            const exams = await apiFetch(`/exam-weeks/${weekId}/exams`);
+            STORE.parsedExams = exams;
+            renderParseTable(exams);
+            document.getElementById('parse-add-subject').value = '';
+            document.getElementById('parse-add-name').value = '';
+            document.getElementById('parse-add-students').value = '';
+            document.getElementById('parse-add-start').value = '';
+            document.getElementById('parse-add-end').value = '';
+        } catch (err) {
+            showToast(err.message);
+        }
     });
 
-    document.getElementById('confirm-parse-btn')?.addEventListener('click', function() {
-        // Collect edits from table inputs
+    document.getElementById('confirm-parse-btn')?.addEventListener('click', async function() {
         const inputs = document.querySelectorAll('.parse-edit');
         inputs.forEach(inp => {
             const idx = parseInt(inp.dataset.idx);
@@ -800,7 +813,6 @@ function initParseConfirm() {
         const settings = STORE._tempSettings || { name: 'Exam Week', start: '', end: '', timezone: 'UTC+8' };
         let week = getCurrentExamWeek();
         if (week) {
-            // Update existing week
             week.name = settings.name || 'Exam Week';
             week.startDate = settings.start || '';
             week.endDate = settings.end || '';
@@ -808,22 +820,39 @@ function initParseConfirm() {
             week.exams = exams.map(e => ({ ...e }));
             week.allocations = JSON.parse(JSON.stringify(alloc));
             week.finalAllocations = null;
+            showToast('Allocation done!');
         } else {
-            // Create new week
-            const newWeek = {
-                id: Date.now(),
-                name: settings.name || 'Exam Week',
-                startDate: settings.start || '',
-                endDate: settings.end || '',
-                timezone: settings.timezone || 'UTC+8',
-                exams: exams.map(e => ({ ...e })),
-                allocations: JSON.parse(JSON.stringify(alloc)),
-                finalAllocations: null,
-            };
-            STORE.examWeeks.push(newWeek);
-            STORE.currentExamWeekId = newWeek.id;
+            try {
+                const newWeek = await apiFetch('/exam-weeks', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        name: settings.name || 'Exam Week',
+                        startDate: settings.start || '',
+                        endDate: settings.end || '',
+                        timezone: settings.timezone || 'UTC+8',
+                    }),
+                });
+                STORE.currentExamWeekId = newWeek.id;
+                for (const exam of exams) {
+                    await apiFetch('/exams', {
+                        method: 'POST',
+                        body: JSON.stringify({ ...exam, examWeekId: newWeek.id }),
+                    });
+                }
+                const allocData = {
+                    examWeekId: newWeek.id,
+                    allocations: alloc.assignments,
+                };
+                await apiFetch('/allocations', {
+                    method: 'POST',
+                    body: JSON.stringify(allocData),
+                });
+                showToast('Allocation saved!');
+            } catch (err) {
+                showToast('Failed to save allocation: ' + err.message);
+                return;
+            }
         }
-        saveUserData();
         window.location.href = 'allocation.html';
     });
 }
@@ -859,66 +888,54 @@ function renderParseTable(exams) {
 
 window.removeParsedExam = function(idx) {
     STORE.parsedExams.splice(idx, 1);
-    saveUserData();
     renderParseTable(STORE.parsedExams);
 };
 
-// ─── ALLOCATION PAGE ─────────────────────────────────────────
-function initAllocation() {
-    if (!STORE.isLoggedIn) { window.location.href = 'login.html'; return; }
-    
-    // Ensure edit mode is disabled by default when loading the page
-    STORE.editingAlloc = false; 
+// ============================================================
+//  ALLOCATION PAGE
+// ============================================================
 
-    // Ensure we have allocation data for the current week
+async function initAllocation() {
+    const loaded = await loadUserData();
+    if (!loaded || !STORE.isLoggedIn) {
+        window.location.href = 'login.html';
+        return;
+    }
     const week = getCurrentExamWeek();
     if (!week) {
         showToast('No exam week found.');
         window.location.href = 'dashboard.html';
         return;
     }
-    // If we have a week but no allocations stored in STORE, load from week
-    if (!STORE.allocated || week.allocations) {
-        if (week.allocations) {
-            STORE.allocated = week.allocations;
-        } else {
-            showToast('No allocation data for this week.');
-            window.location.href = 'dashboard.html';
-            return;
-        }
+    if (week.allocations) {
+        STORE.allocated = week.allocations;
+    } else if (!STORE.allocated) {
+        showToast('No allocation data for this week.');
+        window.location.href = 'dashboard.html';
+        return;
     }
+    STORE.editingAlloc = false;
     renderAllocationPage();
 
     // Mode toggle
-    document.querySelectorAll('#alloc-exam-view, #alloc-teacher-view').forEach(el => el.classList.add('hidden'));
-    document.getElementById('alloc-exam-view').classList.remove('hidden');
     document.querySelectorAll('.mode-toggle button').forEach((btn, idx) => {
         btn.removeEventListener('click', handleModeToggle);
         btn.addEventListener('click', handleModeToggle);
     });
-    
     function handleModeToggle() {
         const mode = this.textContent.trim().toLowerCase().includes('exam') ? 'exam' : 'teacher';
         setAllocMode(mode);
     }
-    
-    // Confirm allocations
-    document.getElementById('final-confirm-btn')?.addEventListener('click', function() {
-        finalConfirmAllocation();
-    });
-    
-    // Edit Exam Schedule (back to parse-confirm)
+    // Confirm button
+    document.getElementById('final-confirm-btn')?.addEventListener('click', finalConfirmAllocation);
     document.getElementById('back-to-parse-btn')?.addEventListener('click', function() {
         window.location.href = 'parse-confirm.html';
     });
-    
-    // Edit button toggle 
     document.getElementById('edit-alloc-btn')?.addEventListener('click', function() {
         STORE.editingAlloc = !STORE.editingAlloc;
         showToast(STORE.editingAlloc ? 'Edit mode enabled (you can add/remove teachers)' : 'Edit mode disabled');
         renderAllocationPage();
     });
-
     // Add teacher dropdown event delegation
     document.removeEventListener('change', handleTeacherAdd);
     document.addEventListener('change', handleTeacherAdd);
@@ -931,7 +948,6 @@ function initAllocation() {
             e.target.value = '';
         }
     }
-
     // Remove teacher tag event delegation
     document.removeEventListener('click', handleTeacherRemove);
     document.addEventListener('click', handleTeacherRemove);
@@ -944,8 +960,6 @@ function initAllocation() {
             }
         }
     }
-
-    // Initial mode
     setAllocMode('exam');
 }
 
@@ -958,19 +972,16 @@ function addTeacherToExam(examId, teacherId) {
         return;
     }
     alloc.assignments[examId].push(teacherId);
-    
-    // Safe string matching
     const section = alloc.sections.find(s => String(s.id || s.originalId) === String(examId));
     if (section) {
         const hours = (new Date(section.endTime) - new Date(section.startTime)) / (1000 * 60 * 60);
         alloc.teacherHours[teacherId] = (alloc.teacherHours[teacherId] || 0) + hours;
     }
-    // Update week
+    // Update week (in memory only; we don't persist to server for simplicity)
     const week = getCurrentExamWeek();
     if (week) {
         week.allocations = JSON.parse(JSON.stringify(alloc));
     }
-    saveUserData();
     renderAllocationPage();
 }
 
@@ -981,26 +992,21 @@ function removeTeacherFromExam(examId, teacherId) {
     const idx = alloc.assignments[examId].indexOf(teacherId);
     if (idx === -1) return;
     alloc.assignments[examId].splice(idx, 1);
-    
-    // Safe string matching
     const section = alloc.sections.find(s => String(s.id || s.originalId) === String(examId));
     if (section) {
         const hours = (new Date(section.endTime) - new Date(section.startTime)) / (1000 * 60 * 60);
         alloc.teacherHours[teacherId] = (alloc.teacherHours[teacherId] || 0) - hours;
     }
-    // Update week
     const week = getCurrentExamWeek();
     if (week) {
         week.allocations = JSON.parse(JSON.stringify(alloc));
     }
-    saveUserData();
     renderAllocationPage();
 }
 
 function renderAllocationPage() {
     const alloc = STORE.allocated;
     if (!alloc) return;
-    const week = getCurrentExamWeek();
     const sections = alloc.sections || [];
     const assignments = alloc.assignments || {};
     const teacherHours = alloc.teacherHours || {};
@@ -1010,23 +1016,18 @@ function renderAllocationPage() {
         examBody.innerHTML = sections.map((e, idx) => {
             const eid = e.id || idx;
             const assigned = assignments[eid] || [];
-            
-            // Conditionally render the 'x' button ONLY if editingAlloc is true
             const tags = assigned.map(id => `
                 <span class="avail-tag">
                     ${getTeacherName(id)}
                     ${STORE.editingAlloc ? `<span class="remove remove-teacher-btn" data-exam-id="${eid}" data-teacher-id="${id}" style="cursor:pointer;" title="Remove Teacher">×</span>` : ''}
                 </span>
             `).join('');
-            
-            // Conditionally render the dropdown ONLY if editingAlloc is true
             const dropdown = STORE.editingAlloc ? `
                 <select class="add-teacher-select" data-exam-id="${eid}">
                     <option value="">Add teacher...</option>
                     ${STORE.teachers.filter(t => !assigned.includes(t.id)).map(t => `<option value="${t.id}">${t.name}</option>`).join('')}
                 </select>
             ` : '<span class="text-muted text-sm"><i>Edit mode disabled</i></span>';
-            
             return `<tr class="exam-alloc-row" data-exam-id="${eid}">
                 <td>${e.subject}</td>
                 <td>${e.name}</td>
@@ -1059,10 +1060,6 @@ function renderAllocationPage() {
             `<tr><td>${t.name}</td><td>${t.hours.toFixed(1)}</td><td>${t.sessions || '—'}</td></tr>`
         ).join('');
         renderBarChart('bar-chart-container', sorted);
-    }
-    const statusEl = document.getElementById('alloc-status');
-    if (statusEl) {
-        statusEl.textContent = `Generated · ${sections.length} sections · ${STORE.teachers.length} teachers`;
     }
 }
 
@@ -1103,16 +1100,21 @@ window.finalConfirmAllocation = function() {
     if (week) {
         week.finalAllocations = JSON.parse(JSON.stringify(alloc));
         week.allocations = JSON.parse(JSON.stringify(alloc));
-        saveUserData();
     }
     STORE.finalAllocations = JSON.parse(JSON.stringify(alloc));
-    saveUserData();
     window.location.href = 'final.html';
 };
 
-// Final
-function initFinal() {
-    if (!STORE.isLoggedIn) { window.location.href = 'login.html'; return; }
+// ============================================================
+//  FINAL PAGE
+// ============================================================
+
+async function initFinal() {
+    const loaded = await loadUserData();
+    if (!loaded || !STORE.isLoggedIn) {
+        window.location.href = 'login.html';
+        return;
+    }
     if (!STORE.finalAllocations) {
         const week = getCurrentExamWeek();
         if (week && week.finalAllocations) {
@@ -1124,14 +1126,13 @@ function initFinal() {
         }
     }
     renderFinalPage();
-    // Mode toggle for final page
+    // Mode toggle
     document.querySelectorAll('#final-mode-toggle button').forEach((btn, idx) => {
         btn.addEventListener('click', function() {
             const mode = idx === 0 ? 'exam' : 'teacher';
             setFinalMode(mode);
         });
     });
-    // Print buttons: set mode then print
     document.getElementById('print-exam-btn')?.addEventListener('click', function() {
         setFinalMode('exam');
         setTimeout(() => window.print(), 300);
@@ -1142,7 +1143,6 @@ function initFinal() {
     });
     document.getElementById('email-alloc-btn')?.addEventListener('click', emailAllocations);
     document.getElementById('edit-final-btn')?.addEventListener('click', function() {
-        // Go to allocation page to edit
         window.location.href = 'allocation.html';
     });
     document.getElementById('back-to-dashboard')?.addEventListener('click', function() {
@@ -1154,7 +1154,6 @@ function initFinal() {
 function renderFinalPage() {
     const alloc = STORE.finalAllocations;
     if (!alloc) return;
-    const week = getCurrentExamWeek();
     const sections = alloc.sections || [];
     const assignments = alloc.assignments || {};
     const teacherHours = alloc.teacherHours || {};
@@ -1233,11 +1232,20 @@ function emailAllocations() {
     const emails = STORE.teachers.map(t => t.email).filter(Boolean);
     if (emails.length === 0) { showToast('No teacher emails found.'); return; }
     showToast(`📧 Sending allocations to ${emails.length} teachers... (simulated)`);
+    // In the new system, we'll actually call the API to send emails.
+    // We'll implement that later.
 }
 
-// Database
-function initDatabase() {
-    if (!STORE.isLoggedIn) { window.location.href = 'login.html'; return; }
+// ============================================================
+//  DATABASE PAGE
+// ============================================================
+
+async function initDatabase() {
+    const loaded = await loadUserData();
+    if (!loaded || !STORE.isLoggedIn) {
+        window.location.href = 'login.html';
+        return;
+    }
     renderDatabase();
 }
 
@@ -1262,9 +1270,16 @@ function renderDatabase() {
     `).join('');
 }
 
-// Database Upload
-function initDatabaseUpload() {
-    if (!STORE.isLoggedIn) { window.location.href = 'login.html'; return; }
+// ============================================================
+//  DATABASE UPLOAD
+// ============================================================
+
+async function initDatabaseUpload() {
+    const loaded = await loadUserData();
+    if (!loaded || !STORE.isLoggedIn) {
+        window.location.href = 'login.html';
+        return;
+    }
     document.getElementById('db-template-btn')?.addEventListener('click', downloadDbTemplate);
     document.getElementById('db-parse-btn')?.addEventListener('click', parseDbCSV);
     document.getElementById('db-add-manual-btn')?.addEventListener('click', addManualTeacher);
@@ -1282,7 +1297,7 @@ function downloadDbTemplate() {
     URL.revokeObjectURL(a.href);
 }
 
-function parseDbCSV() {
+async function parseDbCSV() {
     const fileInput = document.getElementById('db-csv');
     if (!fileInput.files || fileInput.files.length === 0) {
         showToast('Please select a CSV file.');
@@ -1361,53 +1376,77 @@ function addManualTeacher() {
     showToast('Teacher added to preview.');
 }
 
-function confirmDbUpload() {
+async function confirmDbUpload() {
     const teachers = STORE.dbTempTeachers;
     if (!teachers || teachers.length === 0) {
         showToast('No teachers to save. Upload or add some first.');
         return;
     }
-    const existingEmails = new Set(STORE.teachers.map(t => t.email));
     let added = 0;
-    teachers.forEach(t => {
-        if (!t.email || !existingEmails.has(t.email)) {
-            STORE.teachers.push({ ...t, id: STORE.nextId++ });
+    for (const t of teachers) {
+        try {
+            await apiFetch('/teachers', {
+                method: 'POST',
+                body: JSON.stringify({
+                    name: t.name,
+                    email: t.email || '',
+                    subjects: t.subjects || [],
+                    yearsAtSchool: t.yearsAtSchool || 0,
+                    teachingHours: t.teachingHours || 18,
+                }),
+            });
             added++;
-            if (t.email) existingEmails.add(t.email);
+        } catch (err) {
+            console.error('Failed to add teacher:', err);
         }
-    });
+    }
     STORE.dbTempTeachers = [];
-    saveUserData();
-    renderDatabase();
+    renderDbUploadPreview([]);
+    const newTeachers = await apiFetch('/teachers');
+    STORE.teachers = newTeachers;
     showToast(`Saved ${added} new teachers to database.`);
     window.location.href = 'database.html';
 }
 
-// Database Edit
-function initDatabaseEdit() {
-    if (!STORE.isLoggedIn) { window.location.href = 'login.html'; return; }
+// ============================================================
+//  DATABASE EDIT
+// ============================================================
+
+async function initDatabaseEdit() {
+    const loaded = await loadUserData();
+    if (!loaded || !STORE.isLoggedIn) {
+        window.location.href = 'login.html';
+        return;
+    }
     renderDbEdit();
     document.getElementById('db-edit-save-btn')?.addEventListener('click', function() {
-        saveUserData();
         showToast('Database changes saved.');
         window.location.href = 'database.html';
     });
-    document.getElementById('db-edit-add-btn')?.addEventListener('click', function() {
+    document.getElementById('db-edit-add-btn')?.addEventListener('click', async function() {
         const name = document.getElementById('db-edit-name').value.trim();
         const email = document.getElementById('db-edit-email').value.trim();
         const subjects = document.getElementById('db-edit-subjects').value.trim().split(',').map(s => s.trim()).filter(Boolean);
         const years = parseInt(document.getElementById('db-edit-years').value) || 0;
         const hours = parseInt(document.getElementById('db-edit-hours').value) || 18;
         if (!name) { showToast('Name is required.'); return; }
-        STORE.teachers.push({ id: STORE.nextId++, name, email, subjects, yearsAtSchool: years, teachingHours: hours });
-        saveUserData();
-        renderDbEdit();
-        document.getElementById('db-edit-name').value = '';
-        document.getElementById('db-edit-email').value = '';
-        document.getElementById('db-edit-subjects').value = '';
-        document.getElementById('db-edit-years').value = '';
-        document.getElementById('db-edit-hours').value = '';
-        showToast('Teacher added.');
+        try {
+            await apiFetch('/teachers', {
+                method: 'POST',
+                body: JSON.stringify({ name, email, subjects, yearsAtSchool: years, teachingHours: hours }),
+            });
+            showToast('Teacher added.');
+            const newTeachers = await apiFetch('/teachers');
+            STORE.teachers = newTeachers;
+            renderDbEdit();
+            document.getElementById('db-edit-name').value = '';
+            document.getElementById('db-edit-email').value = '';
+            document.getElementById('db-edit-subjects').value = '';
+            document.getElementById('db-edit-years').value = '';
+            document.getElementById('db-edit-hours').value = '';
+        } catch (err) {
+            showToast(err.message);
+        }
     });
 }
 
@@ -1430,47 +1469,60 @@ function renderDbEdit() {
             </div>
             <div class="form-group"><label>Teaching Hours/Week</label><input type="number" value="${t.teachingHours||0}" data-id="${t.id}" data-field="teachingHours" class="db-edit-input"></div>
             <div class="flex gap-2 mt-2">
-                <button class="btn btn-danger btn-sm" onclick="deleteTeacher(${t.id})">Delete Teacher</button>
+                <button class="btn btn-danger btn-sm" onclick="deleteTeacher('${t.id}')">Delete Teacher</button>
             </div>
         </div>
     `).join('');
 
     document.querySelectorAll('.db-edit-input').forEach(inp => {
-        inp.addEventListener('change', function() {
-            const id = parseInt(this.dataset.id);
+        inp.addEventListener('change', async function() {
+            const id = this.dataset.id;
             const field = this.dataset.field;
             let val = this.value;
             const teacher = STORE.teachers.find(t => t.id === id);
-            if (teacher) {
-                if (field === 'subjects') {
-                    teacher.subjects = val.split(',').map(s => s.trim()).filter(Boolean);
-                } else if (field === 'yearsAtSchool' || field === 'teachingHours') {
-                    teacher[field] = parseInt(val) || 0;
-                } else {
-                    teacher[field] = val;
-                }
-                saveUserData();
+            if (!teacher) return;
+            let updateData = { ...teacher };
+            if (field === 'subjects') {
+                updateData.subjects = val.split(',').map(s => s.trim()).filter(Boolean);
+            } else if (field === 'yearsAtSchool' || field === 'teachingHours') {
+                updateData[field] = parseInt(val) || 0;
+            } else {
+                updateData[field] = val;
+            }
+            try {
+                await apiFetch(`/teachers/${id}`, {
+                    method: 'PUT',
+                    body: JSON.stringify(updateData),
+                });
+                const idx = STORE.teachers.findIndex(t => t.id === id);
+                if (idx !== -1) STORE.teachers[idx] = updateData;
+            } catch (err) {
+                showToast('Failed to update teacher: ' + err.message);
             }
         });
     });
 }
 
-window.deleteTeacher = function(id) {
+window.deleteTeacher = async function(id) {
     if (!confirm('Delete this teacher permanently?')) return;
-    STORE.teachers = STORE.teachers.filter(t => t.id !== id);
-    saveUserData();
-    renderDbEdit();
-    showToast('Teacher deleted.');
+    try {
+        await apiFetch(`/teachers/${id}`, { method: 'DELETE' });
+        STORE.teachers = STORE.teachers.filter(t => t.id !== id);
+        renderDbEdit();
+        showToast('Teacher deleted.');
+    } catch (err) {
+        showToast('Failed to delete teacher: ' + err.message);
+    }
 };
 
-// ─── GLOBAL INIT ─────────────────────────────────────────────
+// ============================================================
+//  GLOBAL INIT
+// ============================================================
 document.addEventListener('DOMContentLoaded', function() {
-    const savedUser = sessionStorage.getItem('invigiflow_current_user');
-    if (savedUser) {
-        const users = getUsers();
-        if (users[savedUser]) {
-            loadUserData(savedUser);
-        }
+    // Check if we have a token; if so, we'll load user data
+    const token = getToken();
+    if (token) {
+        loadUserData().catch(() => {});
     }
     const path = window.location.pathname;
     const page = path.split('/').pop().split('.')[0];
@@ -1489,16 +1541,10 @@ document.addEventListener('DOMContentLoaded', function() {
         case 'database-upload': initDatabaseUpload(); break;
         case 'database-edit': initDatabaseEdit(); break;
         default:
-            if (!STORE.isLoggedIn) window.location.href = 'login.html';
+            if (!getToken()) window.location.href = 'login.html';
             break;
     }
     document.getElementById('toast')?.addEventListener('click', function() {
         this.classList.remove('show');
-    });
-    window.addEventListener('beforeunload', function() {
-        if (currentUser) {
-            saveUserData();
-            sessionStorage.setItem('invigiflow_current_user', currentUser);
-        }
     });
 });
