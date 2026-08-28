@@ -88,7 +88,7 @@ function authenticate(req, res, next) {
 app.post('/api/auth/signup', async (req, res) => {
   const { username, email, password } = req.body;
   
-  if (!username || !email || !password || !code) {
+  if (!username || !email || !password) {
       return res.status(400).json({ error: 'Missing fields' });
   }
 
