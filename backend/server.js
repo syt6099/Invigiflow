@@ -60,14 +60,12 @@ async function writeJSON(file, data) {
 const transporter = nodemailer.createTransport({
   host: process.env.EMAIL_HOST || 'smtp.office365.com',
   port: parseInt(process.env.EMAIL_PORT || '587'),
-  secure: false, // false for STARTTLS on port 587
+  secure: false,
   auth: {
     user: process.env.EMAIL_USER,
     pass: process.env.EMAIL_PASS,
   },
-  tls: {
-    ciphers: 'SSLv3',
-  }
+  requireTLS: true,
 });
 
 // ---------- Middleware: verify JWT ----------
