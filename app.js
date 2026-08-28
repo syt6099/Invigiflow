@@ -297,8 +297,13 @@ function initSignup() {
         }
     });
     document.getElementById('send-code-btn')?.addEventListener('click', async function() {
+        const btn = this;
         const email = document.getElementById('signup-email').value.trim();
         if (!email) { showToast('Enter email first.'); return; }
+
+        btn.disabled = true;
+        btn.textContent = 'Sending...';
+
         try {
             await apiFetch('/auth/send-signup-code', {
                 method: 'POST',
@@ -306,7 +311,11 @@ function initSignup() {
             });
             showToast('Verification code sent to your email.');
         } catch (err) {
-            showToast(err.message);
+            console.error('Error sending code:', err);
+            showToast(err.message || 'Failed to send code.');
+        } finally {
+            btn.disabled = false;
+            btn.textContent = 'Send Code';
         }
     });
 }
