@@ -11,15 +11,15 @@ const { v4: uuidv4 } = require('uuid');
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-// --- CORS must come BEFORE routes ---
+// --- CORS (must come before routes) ---
 app.use(cors({
-    origin: '*', // replace with 'https://syt6099.github.io' later
+    origin: '*',
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization']
 }));
 app.options('*', cors());
 
-// --- Manual CORS fallback (ensures headers for all responses) ---
+// --- Manual CORS fallback ---
 app.use((req, res, next) => {
     res.header('Access-Control-Allow-Origin', '*');
     res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
@@ -90,55 +90,47 @@ function authenticate(req, res, next) {
 
 // ---------- Routes ----------
 
-// Signup (verification disabled)
+// ---- Signup (verification disabled, case-insensitive email) ----
 app.post('/api/auth/signup', async (req, res) => {
   const { username, email, password } = req.body;
   if (!username || !email || !password) {
     return res.status(400).json({ error: 'Missing fields' });
   }
-
-  // (Verification check is skipped)
+  const normalizedEmail = email.toLowerCase().trim();
   const users = await readJSON(USERS_FILE);
-  if (users.find(u => u.email === email)) {
+  if (users.find(u => u.email.toLowerCase() === normalizedEmail)) {
     return res.status(400).json({ error: 'Email already registered' });
   }
-
   const hashed = await bcrypt.hash(password, 10);
   const newUser = {
     id: uuidv4(),
     username,
-    email,
+    email: normalizedEmail, // store in lowercase
     passwordHash: hashed,
     createdAt: new Date().toISOString(),
   };
   users.push(newUser);
   await writeJSON(USERS_FILE, users);
-
-  // Clean any pending code
-  if (global.resetCodes) delete global.resetCodes[email];
-
+  if (global.resetCodes) delete global.resetCodes[normalizedEmail];
   res.status(201).json({ message: 'User created successfully.' });
 });
 
-// Send signup code (optional)
+// ---- Send signup code (optional) ----
 app.post('/api/auth/send-signup-code', async (req, res) => {
   const { email } = req.body;
   if (!email) return res.status(400).json({ error: 'Email is required' });
-
+  const normalizedEmail = email.toLowerCase().trim();
   const users = await readJSON(USERS_FILE);
-    const existingUser = users.find(u => u.email.toLowerCase() === email.toLowerCase().trim());
-    if (existingUser) {
-        return res.status(400).json({ error: 'Email already registered' });
-    }
-
+  if (users.find(u => u.email.toLowerCase() === normalizedEmail)) {
+    return res.status(400).json({ error: 'Email already registered' });
+  }
   const code = Math.floor(100000 + Math.random() * 900000).toString();
   if (!global.resetCodes) global.resetCodes = {};
-  global.resetCodes[email] = { code, expires: Date.now() + 10 * 60 * 1000 };
-
+  global.resetCodes[normalizedEmail] = { code, expires: Date.now() + 10 * 60 * 1000 };
   try {
     await transporter.sendMail({
       from: `"Invigiflow" <${process.env.EMAIL_USER}>`,
-      to: email,
+      to: normalizedEmail,
       subject: 'Invigiflow Verification Code',
       html: `<p>Your verification code is: <strong>${code}</strong></p><p>It expires in 10 minutes.</p>`,
     });
@@ -149,11 +141,12 @@ app.post('/api/auth/send-signup-code', async (req, res) => {
   }
 });
 
-// Login
+// ---- Login (case-insensitive) ----
 app.post('/api/auth/login', async (req, res) => {
   const { email, password } = req.body;
+  const normalizedEmail = email.toLowerCase().trim();
   const users = await readJSON(USERS_FILE);
-  const user = users.find(u => u.email === email);
+  const user = users.find(u => u.email.toLowerCase() === normalizedEmail);
   if (!user) return res.status(401).json({ error: 'Invalid credentials' });
   const valid = await bcrypt.compare(password, user.passwordHash);
   if (!valid) return res.status(401).json({ error: 'Invalid credentials' });
@@ -161,19 +154,20 @@ app.post('/api/auth/login', async (req, res) => {
   res.json({ token, user: { id: user.id, username: user.username, email: user.email } });
 });
 
-// Forgot password
+// ---- Forgot password ----
 app.post('/api/auth/forgot-password', async (req, res) => {
   const { email } = req.body;
+  const normalizedEmail = email.toLowerCase().trim();
   const users = await readJSON(USERS_FILE);
-  const user = users.find(u => u.email === email);
+  const user = users.find(u => u.email.toLowerCase() === normalizedEmail);
   if (!user) return res.status(404).json({ error: 'User not found' });
   const code = Math.floor(100000 + Math.random() * 900000).toString();
   if (!global.resetCodes) global.resetCodes = {};
-  global.resetCodes[email] = { code, expires: Date.now() + 10 * 60 * 1000 };
+  global.resetCodes[normalizedEmail] = { code, expires: Date.now() + 10 * 60 * 1000 };
   try {
     await transporter.sendMail({
       from: `"Invigiflow" <${process.env.EMAIL_USER}>`,
-      to: email,
+      to: normalizedEmail,
       subject: 'Password Reset Code',
       html: `<p>Your password reset code is: <strong>${code}</strong></p><p>It expires in 10 minutes.</p>`,
     });
@@ -186,19 +180,20 @@ app.post('/api/auth/forgot-password', async (req, res) => {
 
 app.post('/api/auth/reset-password', async (req, res) => {
   const { email, code, newPassword } = req.body;
-  if (!global.resetCodes || !global.resetCodes[email]) {
+  const normalizedEmail = email.toLowerCase().trim();
+  if (!global.resetCodes || !global.resetCodes[normalizedEmail]) {
     return res.status(400).json({ error: 'No reset request found' });
   }
-  const stored = global.resetCodes[email];
+  const stored = global.resetCodes[normalizedEmail];
   if (stored.code !== code || Date.now() > stored.expires) {
     return res.status(400).json({ error: 'Invalid or expired code' });
   }
   const users = await readJSON(USERS_FILE);
-  const userIndex = users.findIndex(u => u.email === email);
+  const userIndex = users.findIndex(u => u.email.toLowerCase() === normalizedEmail);
   if (userIndex === -1) return res.status(404).json({ error: 'User not found' });
   users[userIndex].passwordHash = await bcrypt.hash(newPassword, 10);
   await writeJSON(USERS_FILE, users);
-  delete global.resetCodes[email];
+  delete global.resetCodes[normalizedEmail];
   res.json({ message: 'Password reset successfully.' });
 });
 
@@ -207,6 +202,7 @@ app.get('/api/teachers', authenticate, async (req, res) => {
   const teachers = await readJSON(TEACHERS_FILE);
   res.json(teachers);
 });
+
 app.post('/api/teachers', authenticate, async (req, res) => {
   const teachers = await readJSON(TEACHERS_FILE);
   const newTeacher = { id: uuidv4(), ...req.body };
@@ -214,6 +210,7 @@ app.post('/api/teachers', authenticate, async (req, res) => {
   await writeJSON(TEACHERS_FILE, teachers);
   res.status(201).json(newTeacher);
 });
+
 app.put('/api/teachers/:id', authenticate, async (req, res) => {
   const teachers = await readJSON(TEACHERS_FILE);
   const idx = teachers.findIndex(t => t.id === req.params.id);
@@ -222,6 +219,7 @@ app.put('/api/teachers/:id', authenticate, async (req, res) => {
   await writeJSON(TEACHERS_FILE, teachers);
   res.json(teachers[idx]);
 });
+
 app.delete('/api/teachers/:id', authenticate, async (req, res) => {
   let teachers = await readJSON(TEACHERS_FILE);
   teachers = teachers.filter(t => t.id !== req.params.id);
@@ -234,6 +232,7 @@ app.get('/api/exam-weeks', authenticate, async (req, res) => {
   const weeks = await readJSON(EXAM_WEEKS_FILE);
   res.json(weeks);
 });
+
 app.post('/api/exam-weeks', authenticate, async (req, res) => {
   const weeks = await readJSON(EXAM_WEEKS_FILE);
   const newWeek = { id: uuidv4(), ...req.body, createdAt: new Date().toISOString() };
@@ -242,15 +241,28 @@ app.post('/api/exam-weeks', authenticate, async (req, res) => {
   res.status(201).json(newWeek);
 });
 
+app.put('/api/exam-weeks/:id', authenticate, async (req, res) => {
+  const weeks = await readJSON(EXAM_WEEKS_FILE);
+  const idx = weeks.findIndex(w => w.id === req.params.id);
+  if (idx === -1) return res.status(404).json({ error: 'Exam week not found' });
+  weeks[idx] = { ...weeks[idx], ...req.body };
+  await writeJSON(EXAM_WEEKS_FILE, weeks);
+  res.json(weeks[idx]);
+});
+
 app.delete('/api/exam-weeks/:id', authenticate, async (req, res) => {
-    let weeks = await readJSON(EXAM_WEEKS_FILE);
-    weeks = weeks.filter(w => w.id !== req.params.id);
-    await writeJSON(EXAM_WEEKS_FILE, weeks);
-    // Also delete all exams belonging to that week
-    let exams = await readJSON(EXAMS_FILE);
-    exams = exams.filter(e => e.examWeekId !== req.params.id);
-    await writeJSON(EXAMS_FILE, exams);
-    res.json({ message: 'Exam week deleted' });
+  let weeks = await readJSON(EXAM_WEEKS_FILE);
+  weeks = weeks.filter(w => w.id !== req.params.id);
+  await writeJSON(EXAM_WEEKS_FILE, weeks);
+  // Delete associated exams
+  let exams = await readJSON(EXAMS_FILE);
+  exams = exams.filter(e => e.examWeekId !== req.params.id);
+  await writeJSON(EXAMS_FILE, exams);
+  // Delete associated allocations
+  let allocations = await readJSON(ALLOCATIONS_FILE);
+  allocations = allocations.filter(a => a.examWeekId !== req.params.id);
+  await writeJSON(ALLOCATIONS_FILE, allocations);
+  res.json({ message: 'Exam week and related data deleted' });
 });
 
 // ---- Exams ----
@@ -259,6 +271,7 @@ app.get('/api/exam-weeks/:weekId/exams', authenticate, async (req, res) => {
   const filtered = exams.filter(e => e.examWeekId === req.params.weekId);
   res.json(filtered);
 });
+
 app.post('/api/exams', authenticate, async (req, res) => {
   const exams = await readJSON(EXAMS_FILE);
   const newExam = { id: uuidv4(), ...req.body };
@@ -286,6 +299,7 @@ app.post('/api/allocations', authenticate, async (req, res) => {
   await writeJSON(ALLOCATIONS_FILE, filtered);
   res.status(201).json(newAlloc);
 });
+
 app.get('/api/allocations/:examWeekId', authenticate, async (req, res) => {
   const allAlloc = await readJSON(ALLOCATIONS_FILE);
   const found = allAlloc.find(a => a.examWeekId === req.params.examWeekId);
