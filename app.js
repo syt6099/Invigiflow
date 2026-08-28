@@ -287,7 +287,8 @@ function initSignup() {
         try {
             await apiFetch('/auth/signup', {
                 method: 'POST',
-                body: JSON.stringify({ username, email, password }),
+                // ADD 'code' TO THE BODY HERE:
+                body: JSON.stringify({ username, email, password, code }), 
             });
             showToast('Account created! Please check your email for verification.');
             window.location.href = 'login.html';
