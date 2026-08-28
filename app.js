@@ -299,7 +299,7 @@ function initSignup() {
         const email = document.getElementById('signup-email').value.trim();
         if (!email) { showToast('Enter email first.'); return; }
         try {
-            await apiFetch('/auth/forgot-password', {
+            await apiFetch('/auth/send-signup-code', {
                 method: 'POST',
                 body: JSON.stringify({ email }),
             });
