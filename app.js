@@ -378,7 +378,6 @@ window.openExamWeek = function(id) {
         STORE.allocated = w.allocations;
         window.location.href = 'allocation.html';
     } else {
-        // No allocations yet – continue setup
         STORE.currentExamWeekId = id;
         window.location.href = `settings.html?weekId=${id}`;
     }
@@ -445,25 +444,24 @@ async function initSettings() {
         const end = document.getElementById('ew-end').value;
         const tz = document.getElementById('ew-timezone').value;
         if (!name || !start || !end) { showToast('Please fill in all fields.'); return false; }
+
         try {
             let weekIdToUse = STORE.currentExamWeekId;
-            let newWeek;
             if (weekIdToUse) {
-                // Update existing week via PUT
-                newWeek = await apiFetch(`/exam-weeks/${weekIdToUse}`, {
+                // === EDIT EXISTING WEEK ===
+                await apiFetch(`/exam-weeks/${weekIdToUse}`, {
                     method: 'PUT',
                     body: JSON.stringify({ name, startDate: start, endDate: end, timezone: tz }),
                 });
                 // Reload weeks
                 const weeks = await apiFetch('/exam-weeks');
                 STORE.examWeeks = weeks;
-                STORE.currentExamWeekId = newWeek.id;
                 showToast('Exam week updated!');
-                window.location.href = `availability.html?weekId=${newWeek.id}`;
+                window.location.href = `availability.html?weekId=${weekIdToUse}`;
                 return;
             } else {
                 // Create new week
-                newWeek = await apiFetch('/exam-weeks', {
+                const newWeek = await apiFetch('/exam-weeks', {
                     method: 'POST',
                     body: JSON.stringify({ name, startDate: start, endDate: end, timezone: tz }),
                 });
@@ -846,38 +844,35 @@ async function initParseConfirm() {
         const settings = STORE._tempSettings || { name: 'Exam Week', start: '', end: '', timezone: 'UTC+8' };
         let week = getCurrentExamWeek();
         let targetWeekId = STORE.currentExamWeekId;
-        if (week) {
-            // Update existing week
-            week.name = settings.name || 'Exam Week';
-            week.startDate = settings.start || '';
-            week.endDate = settings.end || '';
-            week.timezone = settings.timezone || 'UTC+8';
-            week.exams = exams.map(e => ({ ...e }));
-            week.allocations = JSON.parse(JSON.stringify(alloc));
-            week.finalAllocations = null;
-            // Also persist via API (update week)
-            await apiFetch(`/exam-weeks/${week.id}`, {
-                method: 'PUT',
-                body: JSON.stringify({
-                    name: week.name,
-                    startDate: week.startDate,
-                    endDate: week.endDate,
-                    timezone: week.timezone
-                })
-            });
-            // Save allocations
-            const allocData = {
-                examWeekId: week.id,
-                allocations: alloc.assignments,
-            };
-            await apiFetch('/allocations', {
-                method: 'POST',
-                body: JSON.stringify(allocData),
-            });
-            showToast('Allocation saved!');
-            window.location.href = `allocation.html?weekId=${week.id}`;
-        } else {
-            try {
+        try {
+            if (week) {
+                // Update existing week
+                await apiFetch(`/exam-weeks/${week.id}`, {
+                    method: 'PUT',
+                    body: JSON.stringify({
+                        name: settings.name || 'Exam Week',
+                        startDate: settings.start || '',
+                        endDate: settings.end || '',
+                        timezone: settings.timezone || 'UTC+8',
+                    }),
+                });
+                // Save allocations (full object)
+                const allocData = {
+                    examWeekId: week.id,
+                    allocations: {
+                        assignments: alloc.assignments,
+                        sections: alloc.sections,
+                        teacherHours: alloc.teacherHours,
+                    },
+                };
+                await apiFetch('/allocations', {
+                    method: 'POST',
+                    body: JSON.stringify(allocData),
+                });
+                showToast('Allocation saved!');
+                window.location.href = `allocation.html?weekId=${week.id}`;
+            } else {
+                // Create new week
                 const newWeek = await apiFetch('/exam-weeks', {
                     method: 'POST',
                     body: JSON.stringify({
@@ -897,7 +892,11 @@ async function initParseConfirm() {
                 }
                 const allocData = {
                     examWeekId: newWeek.id,
-                    allocations: alloc.assignments,
+                    allocations: {
+                        assignments: alloc.assignments,
+                        sections: alloc.sections,
+                        teacherHours: alloc.teacherHours,
+                    },
                 };
                 await apiFetch('/allocations', {
                     method: 'POST',
@@ -907,10 +906,10 @@ async function initParseConfirm() {
                 STORE.examWeeks = weeks;
                 showToast('Allocation saved!');
                 window.location.href = `allocation.html?weekId=${newWeek.id}`;
-            } catch (err) {
-                showToast('Failed to save allocation: ' + err.message);
-                return;
             }
+        } catch (err) {
+            showToast('Failed to save allocation: ' + err.message);
+            return;
         }
     });
 }
@@ -962,39 +961,46 @@ async function initAllocation() {
     if (weekId) {
         STORE.currentExamWeekId = weekId;
     }
-    const week = getCurrentExamWeek();
-    if (!week) {
-        showToast('No exam week found.');
-        window.location.href = 'dashboard.html';
-        return;
-    }
-    // Try to load allocations from the server if not in store
-    if (!STORE.allocated) {
+    // If we already have allocations in STORE, use them
+    if (STORE.allocated) {
+        // Good, proceed
+    } else {
+        // Try to fetch from server
         try {
             const allocData = await apiFetch(`/allocations/${weekId}`);
-            if (allocData && allocData.allocations && Object.keys(allocData.allocations).length > 0) {
-                // Reconstruct the full allocation object
-                const exams = await apiFetch(`/exam-weeks/${weekId}/exams`);
-                const teachers = STORE.teachers;
-                // We need to rebuild the sections and teacherHours
-                // Re-run allocation algorithm to get sections and teacherHours
-                const newAlloc = runAllocation(exams, teachers, STORE.availability);
-                newAlloc.assignments = allocData.allocations;
-                STORE.allocated = newAlloc;
+            if (allocData && allocData.allocations && allocData.allocations.assignments) {
+                // Full allocation object is stored
+                STORE.allocated = allocData.allocations;
+                // Also need to ensure sections and teacherHours exist
+                if (!STORE.allocated.sections) {
+                    // Fallback: rebuild sections from exams
+                    const exams = await apiFetch(`/exam-weeks/${weekId}/exams`);
+                    const teachers = STORE.teachers;
+                    const newAlloc = runAllocation(exams, teachers, STORE.availability);
+                    newAlloc.assignments = allocData.allocations.assignments;
+                    STORE.allocated = newAlloc;
+                }
             }
         } catch (e) {
             // ignore
         }
     }
+
     if (!STORE.allocated) {
         showToast('No allocation data for this week.');
-        window.location.href = 'dashboard.html';
+        // Offer a way to go back
+        if (confirm('No allocations found. Go back to parse-confirm?')) {
+            window.location.href = `parse-confirm.html?weekId=${STORE.currentExamWeekId}`;
+        } else {
+            window.location.href = 'dashboard.html';
+        }
         return;
     }
+
     STORE.editingAlloc = false;
     renderAllocationPage();
 
-    // Mode toggle
+    // Mode toggle, buttons, etc.
     document.querySelectorAll('.mode-toggle button').forEach((btn, idx) => {
         btn.removeEventListener('click', handleModeToggle);
         btn.addEventListener('click', handleModeToggle);
@@ -1003,7 +1009,6 @@ async function initAllocation() {
         const mode = this.textContent.trim().toLowerCase().includes('exam') ? 'exam' : 'teacher';
         setAllocMode(mode);
     }
-    // Confirm button
     document.getElementById('final-confirm-btn')?.addEventListener('click', finalConfirmAllocation);
     document.getElementById('back-to-parse-btn')?.addEventListener('click', function() {
         window.location.href = `parse-confirm.html?weekId=${STORE.currentExamWeekId}`;
@@ -1013,7 +1018,7 @@ async function initAllocation() {
         showToast(STORE.editingAlloc ? 'Edit mode enabled (you can add/remove teachers)' : 'Edit mode disabled');
         renderAllocationPage();
     });
-    // Add teacher dropdown event delegation
+    // Add/remove teacher listeners...
     document.removeEventListener('change', handleTeacherAdd);
     document.addEventListener('change', handleTeacherAdd);
     function handleTeacherAdd(e) {
@@ -1025,7 +1030,6 @@ async function initAllocation() {
             e.target.value = '';
         }
     }
-    // Remove teacher tag event delegation
     document.removeEventListener('click', handleTeacherRemove);
     document.addEventListener('click', handleTeacherRemove);
     function handleTeacherRemove(e) {
@@ -1040,7 +1044,7 @@ async function initAllocation() {
     setAllocMode('exam');
 }
 
-// ---- Allocation helper functions ----
+// ---- Allocation helper functions (unchanged) ----
 function addTeacherToExam(examId, teacherId) {
     const alloc = STORE.allocated;
     if (!alloc) return;
@@ -1459,7 +1463,6 @@ async function confirmDbUpload() {
         showToast('No teachers to save. Upload or add some first.');
         return;
     }
-    // Get existing teachers to check for duplicates
     const existingTeachers = await apiFetch('/teachers');
     const existingEmails = new Set(existingTeachers.map(t => t.email.toLowerCase().trim()));
     let added = 0;
