@@ -85,12 +85,23 @@ function authenticate(req, res, next) {
 
 // ---- Auth ----
 app.post('/api/auth/signup', async (req, res) => {
-  const { username, email, password } = req.body;
-  if (!username || !email || !password) return res.status(400).json({ error: 'Missing fields' });
+  const { username, email, password, code } = req.body;
+  
+  if (!username || !email || !password || !code) {
+      return res.status(400).json({ error: 'Missing fields' });
+  }
+
+  // Validate the code
+  const stored = global.resetCodes ? global.resetCodes[email] : null;
+  if (!stored || stored.code !== code || Date.now() > stored.expires) {
+    return res.status(400).json({ error: 'Invalid or expired verification code' });
+  }
+
   const users = await readJSON(USERS_FILE);
   if (users.find(u => u.email === email)) {
     return res.status(400).json({ error: 'Email already registered' });
   }
+
   const hashed = await bcrypt.hash(password, 10);
   const newUser = {
     id: uuidv4(),
@@ -99,10 +110,14 @@ app.post('/api/auth/signup', async (req, res) => {
     passwordHash: hashed,
     createdAt: new Date().toISOString(),
   };
+  
   users.push(newUser);
   await writeJSON(USERS_FILE, users);
-  // In production, send verification email here; we'll just return success.
-  res.status(201).json({ message: 'User created. Please verify your email.' });
+  
+  // Clear the code after successful use
+  delete global.resetCodes[email];
+  
+  res.status(201).json({ message: 'User created successfully.' });
 });
 
 // Send code for new user registration
