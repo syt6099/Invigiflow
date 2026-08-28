@@ -297,6 +297,7 @@ function initSignup() {
         }
     });
     document.getElementById('send-code-btn')?.addEventListener('click', async function() {
+        console.log('Send code button clicked');
         const btn = this;
         const email = document.getElementById('signup-email').value.trim();
         if (!email) { showToast('Enter email first.'); return; }
