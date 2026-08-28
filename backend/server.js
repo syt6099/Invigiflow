@@ -62,7 +62,7 @@ async function writeJSON(file, data) {
   await fs.writeFile(file, JSON.stringify(data, null, 2));
 }
 
-// ---------- Email transporter (optional) ----------
+// ---------- Email transporter ----------
 const transporter = nodemailer.createTransport({
   host: process.env.EMAIL_HOST || 'smtp-mail.outlook.com',
   port: parseInt(process.env.EMAIL_PORT || '587'),
@@ -90,7 +90,7 @@ function authenticate(req, res, next) {
 
 // ---------- Routes ----------
 
-// ---- Signup (verification disabled, case-insensitive email) ----
+// ---- Signup (case‑insensitive email, verification disabled) ----
 app.post('/api/auth/signup', async (req, res) => {
   const { username, email, password } = req.body;
   if (!username || !email || !password) {
@@ -105,7 +105,7 @@ app.post('/api/auth/signup', async (req, res) => {
   const newUser = {
     id: uuidv4(),
     username,
-    email: normalizedEmail, // store in lowercase
+    email: normalizedEmail,
     passwordHash: hashed,
     createdAt: new Date().toISOString(),
   };
@@ -141,7 +141,7 @@ app.post('/api/auth/send-signup-code', async (req, res) => {
   }
 });
 
-// ---- Login (case-insensitive) ----
+// ---- Login (case‑insensitive) ----
 app.post('/api/auth/login', async (req, res) => {
   const { email, password } = req.body;
   const normalizedEmail = email.toLowerCase().trim();
@@ -254,11 +254,10 @@ app.delete('/api/exam-weeks/:id', authenticate, async (req, res) => {
   let weeks = await readJSON(EXAM_WEEKS_FILE);
   weeks = weeks.filter(w => w.id !== req.params.id);
   await writeJSON(EXAM_WEEKS_FILE, weeks);
-  // Delete associated exams
+  // Delete associated exams and allocations
   let exams = await readJSON(EXAMS_FILE);
   exams = exams.filter(e => e.examWeekId !== req.params.id);
   await writeJSON(EXAMS_FILE, exams);
-  // Delete associated allocations
   let allocations = await readJSON(ALLOCATIONS_FILE);
   allocations = allocations.filter(a => a.examWeekId !== req.params.id);
   await writeJSON(ALLOCATIONS_FILE, allocations);
@@ -292,9 +291,15 @@ app.post('/api/availabilities', authenticate, async (req, res) => {
 // ---- Allocations ----
 app.post('/api/allocations', authenticate, async (req, res) => {
   const { examWeekId, allocations } = req.body;
+  // Here we expect `allocations` to be the full object: { assignments, sections, teacherHours }
   const allAlloc = await readJSON(ALLOCATIONS_FILE);
   const filtered = allAlloc.filter(a => a.examWeekId !== examWeekId);
-  const newAlloc = { id: uuidv4(), examWeekId, allocations, createdAt: new Date().toISOString() };
+  const newAlloc = { 
+    id: uuidv4(), 
+    examWeekId, 
+    allocations,   // store the full object
+    createdAt: new Date().toISOString() 
+  };
   filtered.push(newAlloc);
   await writeJSON(ALLOCATIONS_FILE, filtered);
   res.status(201).json(newAlloc);
@@ -303,7 +308,7 @@ app.post('/api/allocations', authenticate, async (req, res) => {
 app.get('/api/allocations/:examWeekId', authenticate, async (req, res) => {
   const allAlloc = await readJSON(ALLOCATIONS_FILE);
   const found = allAlloc.find(a => a.examWeekId === req.params.examWeekId);
-  res.json(found || { allocations: [] });
+  res.json(found || { allocations: null });
 });
 
 // ---- Send email (general) ----
