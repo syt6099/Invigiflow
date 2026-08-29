@@ -728,7 +728,6 @@ function confirmExamList() {
 }
 
 // ---------- PARSE CONFIRM ----------
-// ---------- PARSE CONFIRM ----------
 async function initParseConfirm() {
     const loaded = await loadUserData();
     if (!loaded || !STORE.isLoggedIn) {
@@ -1400,6 +1399,7 @@ function downloadDbTemplate() {
     URL.revokeObjectURL(a.href);
 }
 
+// --- FIXED: parseDbCSV – deduplicate ONLY by email, keep all rows without email ---
 async function parseDbCSV() {
     const fileInput = document.getElementById('db-csv');
     if (!fileInput.files || fileInput.files.length === 0) {
@@ -1420,8 +1420,8 @@ async function parseDbCSV() {
         const idxHours = headers.findIndex(h => h.includes('hour') || h.includes('teaching'));
         if (idxName === -1) { showToast('CSV must have a "Name" column.'); return; }
         
-        const teachers = [];
-        const seenKeys = new Set(); // key = email or name (if no email)
+        const emailMap = new Map(); // key: email (lowercase), value: teacher object
+        const noEmailList = [];     // teachers without email – keep all
         
         for (let i = 1; i < lines.length; i++) {
             const cols = lines[i].split(',').map(c => c.trim());
@@ -1432,26 +1432,26 @@ async function parseDbCSV() {
             const years = idxYears >= 0 ? parseInt(cols[idxYears]) || 0 : 0;
             const hours = idxHours >= 0 ? parseInt(cols[idxHours]) || 0 : 18;
             
-            // Deduplicate within this file: use email if present, otherwise name
-            const key = email ? email.toLowerCase().trim() : name.toLowerCase().trim();
-            if (seenKeys.has(key)) {
-                console.warn(`Skipping duplicate row in CSV: ${name} (${email})`);
-                continue;
-            }
-            seenKeys.add(key);
+            const teacher = {
+                id: Date.now() + i,
+                name,
+                email,
+                subjects,
+                yearsAtSchool: years,
+                teachingHours: hours
+            };
             
-            teachers.push({ 
-                id: Date.now() + i, 
-                name, 
-                email, 
-                subjects, 
-                yearsAtSchool: years, 
-                teachingHours: hours 
-            });
+            if (email) {
+                const key = email.toLowerCase().trim();
+                emailMap.set(key, teacher); // overwrites previous with same email → keeps last
+            } else {
+                noEmailList.push(teacher);
+            }
         }
         
+        const teachers = [...emailMap.values(), ...noEmailList];
+        
         if (teachers.length === 0) { showToast('No valid teacher data found.'); return; }
-        // Replace the temp list with the deduped list (do NOT append)
         STORE.dbTempTeachers = teachers;
         renderDbUploadPreview(teachers);
         showToast(`Parsed ${teachers.length} teachers. Click "Save to Database" to store.`);
@@ -1500,6 +1500,7 @@ function addManualTeacher() {
     showToast('Teacher added to preview.');
 }
 
+// --- FIXED: confirmDbUpload – skip duplicates ONLY by email ---
 async function confirmDbUpload() {
     const teachers = STORE.dbTempTeachers;
     if (!teachers || teachers.length === 0) {
@@ -1507,20 +1508,22 @@ async function confirmDbUpload() {
         return;
     }
     const existingTeachers = await apiFetch('/teachers');
-    const existingEmails = new Set(existingTeachers.map(t => t.email.toLowerCase().trim()));
+    // Build a Set of existing emails (lowercase, trim)
+    const existingEmails = new Set(existingTeachers.map(t => t.email ? t.email.toLowerCase().trim() : ''));
     let added = 0;
     let skipped = 0;
+    const toAdd = [];
     for (const t of teachers) {
-        const key = t.email ? t.email.toLowerCase().trim() : t.name.toLowerCase().trim();
-        // Check if this teacher already exists in DB (by email or name)
-        const alreadyExists = existingTeachers.some(ex => 
-            (ex.email && ex.email.toLowerCase().trim() === key) ||
-            (!ex.email && ex.name.toLowerCase().trim() === key)
-        );
-        if (alreadyExists) {
-            skipped++;
-            continue;
+        if (t.email) {
+            const key = t.email.toLowerCase().trim();
+            if (existingEmails.has(key)) {
+                skipped++;
+                continue;
+            }
         }
+        toAdd.push(t);
+    }
+    for (const t of toAdd) {
         try {
             await apiFetch('/teachers', {
                 method: 'POST',
@@ -1533,9 +1536,7 @@ async function confirmDbUpload() {
                 }),
             });
             added++;
-            // Add to set so subsequent checks in this same batch skip it
             if (t.email) existingEmails.add(t.email.toLowerCase().trim());
-            existingTeachers.push(t); // keep the local list up to date
         } catch (err) {
             console.error('Failed to add teacher:', err);
         }
@@ -1551,7 +1552,7 @@ async function confirmDbUpload() {
 }
 
 // ============================================================
-//  DATABASE EDIT
+//  DATABASE EDIT (with bulk delete)
 // ============================================================
 async function initDatabaseEdit() {
     const loaded = await loadUserData();
@@ -1598,23 +1599,35 @@ function renderDbEdit() {
         container.innerHTML = '<p class="text-muted">No teachers in database.</p>';
         return;
     }
-    container.innerHTML = STORE.teachers.map(t => `
-        <div style="border-bottom:1px solid var(--border);padding:10px 0;">
-            <div class="form-row">
-                <div class="form-group"><label>Name</label><input type="text" value="${t.name}" data-id="${t.id}" data-field="name" class="db-edit-input"></div>
-                <div class="form-group"><label>Email</label><input type="email" value="${t.email||''}" data-id="${t.id}" data-field="email" class="db-edit-input"></div>
-            </div>
-            <div class="form-row">
-                <div class="form-group"><label>Subjects (comma-separated)</label><input type="text" value="${(t.subjects||[]).join(', ')}" data-id="${t.id}" data-field="subjects" class="db-edit-input"></div>
-                <div class="form-group"><label>Years at School</label><input type="number" value="${t.yearsAtSchool||0}" data-id="${t.id}" data-field="yearsAtSchool" class="db-edit-input"></div>
-            </div>
-            <div class="form-group"><label>Teaching Hours/Week</label><input type="number" value="${t.teachingHours||0}" data-id="${t.id}" data-field="teachingHours" class="db-edit-input"></div>
-            <div class="flex gap-2 mt-2">
-                <button class="btn btn-danger btn-sm" onclick="deleteTeacher('${t.id}')">Delete Teacher</button>
-            </div>
+    let html = `
+        <div class="flex gap-2 mb-3">
+            <button class="btn btn-outline btn-sm" id="select-all-teachers">Select All</button>
+            <button class="btn btn-danger btn-sm" id="delete-selected-teachers">Delete Selected</button>
         </div>
-    `).join('');
+        <div id="teacher-edit-list">
+    `;
+    STORE.teachers.forEach(t => {
+        html += `
+            <div style="border-bottom:1px solid var(--border);padding:10px 0; display:flex; align-items:flex-start; gap:10px;">
+                <input type="checkbox" class="teacher-select-checkbox" data-id="${t.id}" style="margin-top:8px;">
+                <div style="flex:1;">
+                    <div class="form-row">
+                        <div class="form-group"><label>Name</label><input type="text" value="${t.name}" data-id="${t.id}" data-field="name" class="db-edit-input"></div>
+                        <div class="form-group"><label>Email</label><input type="email" value="${t.email||''}" data-id="${t.id}" data-field="email" class="db-edit-input"></div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group"><label>Subjects (comma-separated)</label><input type="text" value="${(t.subjects||[]).join(', ')}" data-id="${t.id}" data-field="subjects" class="db-edit-input"></div>
+                        <div class="form-group"><label>Years at School</label><input type="number" value="${t.yearsAtSchool||0}" data-id="${t.id}" data-field="yearsAtSchool" class="db-edit-input"></div>
+                    </div>
+                    <div class="form-group"><label>Teaching Hours/Week</label><input type="number" value="${t.teachingHours||0}" data-id="${t.id}" data-field="teachingHours" class="db-edit-input"></div>
+                </div>
+            </div>
+        `;
+    });
+    html += '</div>';
+    container.innerHTML = html;
 
+    // Auto-save on input change
     document.querySelectorAll('.db-edit-input').forEach(inp => {
         inp.addEventListener('change', async function() {
             const id = this.dataset.id;
@@ -1641,6 +1654,36 @@ function renderDbEdit() {
                 showToast('Failed to update teacher: ' + err.message);
             }
         });
+    });
+
+    // Select All button (toggle)
+    document.getElementById('select-all-teachers')?.addEventListener('click', function() {
+        const checkboxes = document.querySelectorAll('.teacher-select-checkbox');
+        const allChecked = Array.from(checkboxes).every(cb => cb.checked);
+        checkboxes.forEach(cb => cb.checked = !allChecked);
+    });
+
+    // Delete Selected button
+    document.getElementById('delete-selected-teachers')?.addEventListener('click', async function() {
+        const selected = document.querySelectorAll('.teacher-select-checkbox:checked');
+        if (selected.length === 0) {
+            showToast('No teachers selected.');
+            return;
+        }
+        if (!confirm(`Delete ${selected.length} teacher(s) permanently?`)) return;
+        const ids = Array.from(selected).map(cb => cb.dataset.id);
+        let deleted = 0;
+        for (const id of ids) {
+            try {
+                await apiFetch(`/teachers/${id}`, { method: 'DELETE' });
+                STORE.teachers = STORE.teachers.filter(t => t.id !== id);
+                deleted++;
+            } catch (err) {
+                console.error('Failed to delete teacher:', err);
+            }
+        }
+        showToast(`Deleted ${deleted} teacher(s).`);
+        renderDbEdit();
     });
 }
 
