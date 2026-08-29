@@ -1569,7 +1569,7 @@ async function confirmDbUpload() {
 }
 
 // ============================================================
-//  DATABASE EDIT (with bulk delete and loading message)
+//  DATABASE EDIT (with bulk delete, loading message, and INCREMENT YEARS)
 // ============================================================
 async function initDatabaseEdit() {
     const loaded = await loadUserData();
@@ -1620,6 +1620,7 @@ function renderDbEdit() {
         <div class="flex gap-2 mb-3">
             <button class="btn btn-outline btn-sm" id="select-all-teachers">Select All</button>
             <button class="btn btn-danger btn-sm" id="delete-selected-teachers">Delete Selected</button>
+            <button class="btn btn-outline btn-sm" id="increment-years-btn">Increment Years +1</button>
         </div>
         <div id="teacher-edit-list">
     `;
@@ -1702,6 +1703,39 @@ function renderDbEdit() {
         }
         renderDbEdit();
         showToast(`Deleted ${deleted} teacher(s).`);
+    });
+
+    // --- NEW: Increment Years +1 button ---
+    document.getElementById('increment-years-btn')?.addEventListener('click', async function() {
+        if (STORE.teachers.length === 0) {
+            showToast('No teachers to update.');
+            return;
+        }
+        if (!confirm(`Increment Years at School by 1 for all ${STORE.teachers.length} teachers?`)) return;
+        showToast(`Incrementing years for ${STORE.teachers.length} teachers...`, 10000);
+        let updated = 0;
+        for (const teacher of STORE.teachers) {
+            const newYears = (teacher.yearsAtSchool || 0) + 1;
+            try {
+                await apiFetch(`/teachers/${teacher.id}`, {
+                    method: 'PUT',
+                    body: JSON.stringify({
+                        name: teacher.name,
+                        email: teacher.email || '',
+                        subjects: teacher.subjects || [],
+                        yearsAtSchool: newYears,
+                        teachingHours: teacher.teachingHours || 0,
+                    })
+                });
+                // Update local STORE
+                teacher.yearsAtSchool = newYears;
+                updated++;
+            } catch (err) {
+                console.error(`Failed to update teacher ${teacher.name}:`, err);
+            }
+        }
+        renderDbEdit();
+        showToast(`Updated ${updated} teachers.`);
     });
 }
 
