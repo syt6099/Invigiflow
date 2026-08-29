@@ -1,6 +1,6 @@
 // ============================================================
 //  app.js – Invigiflow (Full Backend API Integration)
-// ===================================================
+// ============================================================
 
 // ---------- API Configuration ----------
 const API_BASE = 'https://invigiflow.onrender.com/api';
@@ -1500,7 +1500,7 @@ function addManualTeacher() {
     showToast('Teacher added to preview.');
 }
 
-// --- FIXED: confirmDbUpload – skip duplicates ONLY by email ---
+// --- FIXED: confirmDbUpload – skip duplicates ONLY by email, preserve fields ---
 async function confirmDbUpload() {
     const teachers = STORE.dbTempTeachers;
     if (!teachers || teachers.length === 0) {
@@ -1552,7 +1552,7 @@ async function confirmDbUpload() {
 }
 
 // ============================================================
-//  DATABASE EDIT (with bulk delete)
+//  DATABASE EDIT (with bulk delete – fixed)
 // ============================================================
 async function initDatabaseEdit() {
     const loaded = await loadUserData();
@@ -1627,7 +1627,7 @@ function renderDbEdit() {
     html += '</div>';
     container.innerHTML = html;
 
-    // Auto-save on input change (unchanged)
+    // Auto-save on input change
     document.querySelectorAll('.db-edit-input').forEach(inp => {
         inp.addEventListener('change', async function() {
             const id = this.dataset.id;
@@ -1663,7 +1663,7 @@ function renderDbEdit() {
         checkboxes.forEach(cb => cb.checked = !allChecked);
     });
 
-    // Delete Selected button
+    // Delete Selected button – fixed to delete ALL selected and refresh properly
     document.getElementById('delete-selected-teachers')?.addEventListener('click', async function() {
         const selected = document.querySelectorAll('.teacher-select-checkbox:checked');
         if (selected.length === 0) {
@@ -1676,14 +1676,16 @@ function renderDbEdit() {
         for (const id of ids) {
             try {
                 await apiFetch(`/teachers/${id}`, { method: 'DELETE' });
+                // Remove from local store immediately
                 STORE.teachers = STORE.teachers.filter(t => t.id !== id);
                 deleted++;
             } catch (err) {
                 console.error('Failed to delete teacher:', err);
             }
         }
-        showToast(`Deleted ${deleted} teacher(s).`);
+        // Refresh the edit page to reflect the new state
         renderDbEdit();
+        showToast(`Deleted ${deleted} teacher(s).`);
     });
 }
 
