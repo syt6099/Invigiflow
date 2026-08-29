@@ -112,6 +112,7 @@ function formatLocalDateTime(date) {
 
 // ---------- Allocation Algorithm ----------
 function runAllocation(exams, teachers, availability = {}) {
+    // ... (unchanged, keep your existing code)
     const sections = [];
     exams.forEach(exam => {
         const start = new Date(exam.startTime);
@@ -1569,7 +1570,7 @@ async function confirmDbUpload() {
 }
 
 // ============================================================
-//  DATABASE EDIT (with bulk delete, loading message, and INCREMENT YEARS)
+//  DATABASE EDIT (with bulk delete, loading message, and selected increment)
 // ============================================================
 async function initDatabaseEdit() {
     const loaded = await loadUserData();
@@ -1705,19 +1706,23 @@ function renderDbEdit() {
         showToast(`Deleted ${deleted} teacher(s).`);
     });
 
-    // --- NEW: Increment Years +1 button ---
+    // --- NEW: Increment Years +1 ONLY for selected teachers ---
     document.getElementById('increment-years-btn')?.addEventListener('click', async function() {
-        if (STORE.teachers.length === 0) {
-            showToast('No teachers to update.');
+        const selected = document.querySelectorAll('.teacher-select-checkbox:checked');
+        if (selected.length === 0) {
+            showToast('No teachers selected.');
             return;
         }
-        if (!confirm(`Increment Years at School by 1 for all ${STORE.teachers.length} teachers?`)) return;
-        showToast(`Incrementing years for ${STORE.teachers.length} teachers...`, 10000);
+        if (!confirm(`Increment Years at School by 1 for ${selected.length} selected teacher(s)?`)) return;
+        showToast(`Incrementing years for ${selected.length} teachers...`, 10000);
         let updated = 0;
-        for (const teacher of STORE.teachers) {
+        for (const checkbox of selected) {
+            const id = checkbox.dataset.id;
+            const teacher = STORE.teachers.find(t => t.id === id);
+            if (!teacher) continue;
             const newYears = (teacher.yearsAtSchool || 0) + 1;
             try {
-                await apiFetch(`/teachers/${teacher.id}`, {
+                await apiFetch(`/teachers/${id}`, {
                     method: 'PUT',
                     body: JSON.stringify({
                         name: teacher.name,
@@ -1727,7 +1732,6 @@ function renderDbEdit() {
                         teachingHours: teacher.teachingHours || 0,
                     })
                 });
-                // Update local STORE
                 teacher.yearsAtSchool = newYears;
                 updated++;
             } catch (err) {
@@ -1735,7 +1739,7 @@ function renderDbEdit() {
             }
         }
         renderDbEdit();
-        showToast(`Updated ${updated} teachers.`);
+        showToast(`Updated ${updated} teacher(s).`);
     });
 }
 
