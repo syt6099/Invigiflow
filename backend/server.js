@@ -354,7 +354,7 @@ app.get('/api/exam-weeks/:weekId/exams', authenticate, async (req, res) => {
 });
 
 app.post('/api/exams', authenticate, async (req, res) => {
-    const { examWeekId, subject, name, type, studentCount, start, end } = req.body;
+    const { examWeekId, subject, name, type, studentCount, start, startTime, end, endTime } = req.body;
     try {
         const result = await pool.query('SELECT week_data FROM exam_weeks WHERE id=$1 AND user_id=$2', [examWeekId, req.userId]);
         if (result.rows.length === 0) return res.status(404).json({ error: 'Exam week not found' });
@@ -366,8 +366,8 @@ app.post('/api/exams', authenticate, async (req, res) => {
             name,
             type,
             studentCount,
-            startTime: start,
-            endTime: end,
+            startTime: start || startTime,
+            endTime: end || endTime,
         };
         data.exams.push(newExam);
         await pool.query('UPDATE exam_weeks SET week_data = $1 WHERE id=$2 AND user_id=$3', [JSON.stringify(data), examWeekId, req.userId]);
