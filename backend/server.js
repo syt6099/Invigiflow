@@ -177,7 +177,14 @@ app.post('/api/auth/reset-password', async (req, res) => {
 app.get('/api/teachers', authenticate, async (req, res) => {
     try {
         const result = await pool.query(
-            'SELECT id, name, email, subjects, years_at_school, teaching_hours FROM teachers WHERE user_id = $1',
+            `SELECT 
+                id, 
+                name, 
+                email, 
+                subjects, 
+                years_at_school AS "yearsAtSchool", 
+                teaching_hours AS "teachingHours" 
+             FROM teachers WHERE user_id = $1`,
             [req.userId]
         );
         res.json(result.rows);
