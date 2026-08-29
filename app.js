@@ -80,6 +80,21 @@ function getTeacherEmail(id) { const t = getTeacher(id); return t ? t.email : ''
 function getExamWeek(id) { return STORE.examWeeks.find(w => w.id === id); }
 function getCurrentExamWeek() { return getExamWeek(STORE.currentExamWeekId); }
 
+// Returns teachers sorted alphabetically by email (or name if email missing)
+function getSortedTeachers() {
+    return [...STORE.teachers].sort((a, b) => {
+        const emailA = (a.email || '').toLowerCase().trim();
+        const emailB = (b.email || '').toLowerCase().trim();
+        if (emailA && emailB) return emailA.localeCompare(emailB);
+        if (emailA) return -1;
+        if (emailB) return 1;
+        // fallback to name
+        const nameA = (a.name || '').toLowerCase().trim();
+        const nameB = (b.name || '').toLowerCase().trim();
+        return nameA.localeCompare(nameB);
+    });
+}
+
 function getAllSubjects() {
     const subjects = new Set();
     STORE.teachers.forEach(t => {
@@ -112,7 +127,6 @@ function formatLocalDateTime(date) {
 
 // ---------- Allocation Algorithm ----------
 function runAllocation(exams, teachers, availability = {}) {
-    // ... (unchanged, keep your existing code)
     const sections = [];
     exams.forEach(exam => {
         const start = new Date(exam.startTime);
@@ -503,8 +517,9 @@ async function initAvailability() {
 function populateTeacherSelects() {
     const sel = document.getElementById('avail-teacher-select');
     if (!sel) return;
+    const teachers = getSortedTeachers();
     sel.innerHTML = '<option value="">Select teacher</option>' +
-        STORE.teachers.map(t =>
+        teachers.map(t =>
             `<option value="${t.id}">${t.name}</option>`
         ).join('');
 }
@@ -1100,6 +1115,7 @@ function renderAllocationPage() {
 
     const examBody = document.getElementById('alloc-exam-body');
     if (examBody) {
+        const sortedTeachers = getSortedTeachers();
         examBody.innerHTML = sections.map((e, idx) => {
             const eid = e.id || idx;
             const assigned = assignments[eid] || [];
@@ -1113,7 +1129,7 @@ function renderAllocationPage() {
             const dropdown = STORE.editingAlloc ? `
                 <select class="add-teacher-select" data-exam-id="${eid}">
                     <option value="">Add teacher...</option>
-                    ${STORE.teachers.filter(t => !assigned.includes(t.id)).map(t => `<option value="${t.id}">${t.name}</option>`).join('')}
+                    ${sortedTeachers.filter(t => !assigned.includes(t.id)).map(t => `<option value="${t.id}">${t.name}</option>`).join('')}
                 </select>
             ` : '<span class="text-muted text-sm"><i>Edit mode disabled</i></span>';
             return `<tr class="exam-alloc-row" data-exam-id="${eid}">
@@ -1133,21 +1149,22 @@ function renderAllocationPage() {
 
     const teacherBody = document.getElementById('alloc-teacher-body');
     if (teacherBody) {
-        const sorted = STORE.teachers.map(t => ({
-            ...t,
-            hours: teacherHours[t.id] || 0,
-            sessions: Object.entries(assignments)
+        const sortedTeachers = getSortedTeachers();
+        const sortedByHours = [...sortedTeachers].sort((a, b) => (teacherHours[b.id] || 0) - (teacherHours[a.id] || 0));
+        teacherBody.innerHTML = sortedTeachers.map(t => {
+            const sessions = Object.entries(assignments)
                 .filter(([eid, tids]) => tids.includes(t.id))
                 .map(([eid]) => {
                     const sec = sections.find(s => (s.id || sections.indexOf(s)) == eid);
                     return sec ? sec.name : '?';
                 })
-                .join(', ')
-        })).sort((a, b) => b.hours - a.hours);
-        teacherBody.innerHTML = sorted.map(t =>
-            `<tr><td>${t.name}</td><td>${t.hours.toFixed(1)}</td><td>${t.sessions || '—'}</td></tr>`
-        ).join('');
-        renderBarChart('bar-chart-container', sorted);
+                .join(', ');
+            return `<tr><td>${t.name}</td><td>${(teacherHours[t.id] || 0).toFixed(1)}</td><td>${sessions || '—'}</td></tr>`;
+        }).join('');
+        renderBarChart('bar-chart-container', sortedByHours.map(t => ({
+            ...t,
+            hours: teacherHours[t.id] || 0
+        })));
     }
 }
 
@@ -1165,18 +1182,12 @@ function setAllocMode(mode) {
         if (alloc) {
             const sections = alloc.sections || [];
             const assignments = alloc.assignments || {};
-            const sorted = STORE.teachers.map(t => ({
+            const sortedTeachers = getSortedTeachers();
+            const sortedByHours = [...sortedTeachers].sort((a, b) => (alloc.teacherHours[b.id] || 0) - (alloc.teacherHours[a.id] || 0));
+            renderBarChart('bar-chart-container', sortedByHours.map(t => ({
                 ...t,
-                hours: alloc.teacherHours[t.id] || 0,
-                sessions: Object.entries(assignments)
-                    .filter(([eid, tids]) => tids.includes(t.id))
-                    .map(([eid]) => {
-                        const sec = sections.find(s => (s.id || sections.indexOf(s)) == eid);
-                        return sec ? sec.name : '?';
-                    })
-                    .join(', ')
-            })).sort((a, b) => b.hours - a.hours);
-            renderBarChart('bar-chart-container', sorted);
+                hours: alloc.teacherHours[t.id] || 0
+            })));
         }
     }
 }
@@ -1287,21 +1298,22 @@ function renderFinalPage() {
 
     const teacherBody = document.getElementById('final-teacher-body');
     if (teacherBody) {
-        const sorted = STORE.teachers.map(t => ({
-            ...t,
-            hours: teacherHours[t.id] || 0,
-            sessions: Object.entries(assignments)
+        const sortedTeachers = getSortedTeachers();
+        const sortedByHours = [...sortedTeachers].sort((a, b) => (teacherHours[b.id] || 0) - (teacherHours[a.id] || 0));
+        teacherBody.innerHTML = sortedTeachers.map(t => {
+            const sessions = Object.entries(assignments)
                 .filter(([eid, tids]) => tids.includes(t.id))
                 .map(([eid]) => {
                     const sec = sections.find(s => (s.id || sections.indexOf(s)) == eid);
                     return sec ? sec.name : '?';
                 })
-                .join(', ')
-        })).sort((a, b) => b.hours - a.hours);
-        teacherBody.innerHTML = sorted.map(t =>
-            `<tr><td>${t.name}</td><td>${t.hours.toFixed(1)}</td><td>${t.sessions || '—'}</td></tr>`
-        ).join('');
-        renderBarChart('final-bar-chart', sorted);
+                .join(', ');
+            return `<tr><td>${t.name}</td><td>${(teacherHours[t.id] || 0).toFixed(1)}</td><td>${sessions || '—'}</td></tr>`;
+        }).join('');
+        renderBarChart('final-bar-chart', sortedByHours.map(t => ({
+            ...t,
+            hours: teacherHours[t.id] || 0
+        })));
     }
 }
 
@@ -1319,18 +1331,12 @@ function setFinalMode(mode) {
         if (alloc) {
             const sections = alloc.sections || [];
             const assignments = alloc.assignments || {};
-            const sorted = STORE.teachers.map(t => ({
+            const sortedTeachers = getSortedTeachers();
+            const sortedByHours = [...sortedTeachers].sort((a, b) => (alloc.teacherHours[b.id] || 0) - (alloc.teacherHours[a.id] || 0));
+            renderBarChart('final-bar-chart', sortedByHours.map(t => ({
                 ...t,
-                hours: alloc.teacherHours[t.id] || 0,
-                sessions: Object.entries(assignments)
-                    .filter(([eid, tids]) => tids.includes(t.id))
-                    .map(([eid]) => {
-                        const sec = sections.find(s => (s.id || sections.indexOf(s)) == eid);
-                        return sec ? sec.name : '?';
-                    })
-                    .join(', ')
-            })).sort((a, b) => b.hours - a.hours);
-            renderBarChart('final-bar-chart', sorted);
+                hours: alloc.teacherHours[t.id] || 0
+            })));
         }
     }
 }
@@ -1357,13 +1363,14 @@ function renderDatabase() {
     const tbody = document.getElementById('db-table-body');
     const empty = document.getElementById('db-empty');
     if (!tbody) return;
-    if (STORE.teachers.length === 0) {
+    const teachers = getSortedTeachers();
+    if (teachers.length === 0) {
         tbody.innerHTML = '';
         if (empty) empty.style.display = 'block';
         return;
     }
     if (empty) empty.style.display = 'none';
-    tbody.innerHTML = STORE.teachers.map(t => `
+    tbody.innerHTML = teachers.map(t => `
         <tr>
             <td>${t.name}</td>
             <td>${t.email || '—'}</td>
@@ -1375,7 +1382,7 @@ function renderDatabase() {
 }
 
 // ============================================================
-//  DATABASE UPLOAD (fixed parsing and loading messages)
+//  DATABASE UPLOAD
 // ============================================================
 async function initDatabaseUpload() {
     const loaded = await loadUserData();
@@ -1613,7 +1620,8 @@ async function initDatabaseEdit() {
 function renderDbEdit() {
     const container = document.getElementById('db-edit-container');
     if (!container) return;
-    if (STORE.teachers.length === 0) {
+    const teachers = getSortedTeachers();
+    if (teachers.length === 0) {
         container.innerHTML = '<p class="text-muted">No teachers in database.</p>';
         return;
     }
@@ -1625,7 +1633,7 @@ function renderDbEdit() {
         </div>
         <div id="teacher-edit-list">
     `;
-    STORE.teachers.forEach(t => {
+    teachers.forEach(t => {
         html += `
             <div style="border-bottom:1px solid var(--border);padding:8px 0; display:flex; align-items:center; gap:4px;">
                 <input type="checkbox" class="teacher-select-checkbox" data-id="${t.id}" style="margin:0; width:16px; height:16px; flex-shrink:0;">
@@ -1706,7 +1714,7 @@ function renderDbEdit() {
         showToast(`Deleted ${deleted} teacher(s).`);
     });
 
-    // --- NEW: Increment Years +1 ONLY for selected teachers ---
+    // --- Increment Years +1 ONLY for selected teachers ---
     document.getElementById('increment-years-btn')?.addEventListener('click', async function() {
         const selected = document.querySelectorAll('.teacher-select-checkbox:checked');
         if (selected.length === 0) {
