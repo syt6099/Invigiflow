@@ -1209,6 +1209,7 @@ window.finalConfirmAllocation = function() {
                 startDate: week.startDate,
                 endDate: week.endDate,
                 timezone: week.timezone,
+                allocations: alloc,
                 finalAllocations: alloc,
             })
         }).catch(err => console.error('Failed to save final allocations:', err));
