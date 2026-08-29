@@ -6,64 +6,6 @@
 const API_BASE = 'https://invigiflow.onrender.com/api';
 
 // ---------- Helper: get JWT token ----------
-async function parseDbCSV() {
-    const fileInput = document.getElementById('db-csv');
-    if (!fileInput.files || fileInput.files.length === 0) {
-        showToast('Please select a CSV file.');
-        return;
-    }
-    const file = fileInput.files[0];
-    const reader = new FileReader();
-    reader.onload = function(e) {
-        const text = e.target.result;
-        const lines = text.split('\n').filter(l => l.trim());
-        if (lines.length < 2) { showToast('CSV must have a header row and data.'); return; }
-        const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
-        const idxName = headers.findIndex(h => h.includes('name'));
-        const idxEmail = headers.findIndex(h => h.includes('email'));
-        const idxSubjects = headers.findIndex(h => h.includes('subject'));
-        const idxYears = headers.findIndex(h => h.includes('year'));
-        const idxHours = headers.findIndex(h => h.includes('hour') || h.includes('teaching'));
-        if (idxName === -1) { showToast('CSV must have a "Name" column.'); return; }
-        
-        const teachers = [];
-        const seenKeys = new Set(); // key = email or name (if no email)
-        
-        for (let i = 1; i < lines.length; i++) {
-            const cols = lines[i].split(',').map(c => c.trim());
-            if (cols.length < 2) continue;
-            const name = cols[idxName] || 'Unknown';
-            const email = idxEmail >= 0 ? cols[idxEmail] : '';
-            const subjects = idxSubjects >= 0 ? cols[idxSubjects].split(';').map(s => s.trim()).filter(Boolean) : [];
-            const years = idxYears >= 0 ? parseInt(cols[idxYears]) || 0 : 0;
-            const hours = idxHours >= 0 ? parseInt(cols[idxHours]) || 0 : 18;
-            
-            // Deduplicate within this file: use email if present, otherwise name
-            const key = email ? email.toLowerCase().trim() : name.toLowerCase().trim();
-            if (seenKeys.has(key)) {
-                console.warn(`Skipping duplicate row in CSV: ${name} (${email})`);
-                continue;
-            }
-            seenKeys.add(key);
-            
-            teachers.push({ 
-                id: Date.now() + i, 
-                name, 
-                email, 
-                subjects, 
-                yearsAtSchool: years, 
-                teachingHours: hours 
-            });
-        }
-        
-        if (teachers.length === 0) { showToast('No valid teacher data found.'); return; }
-        // Replace the temp list with the deduped list (do NOT append)
-        STORE.dbTempTeachers = teachers;
-        renderDbUploadPreview(teachers);
-        showToast(`Parsed ${teachers.length} teachers. Click "Save to Database" to store.`);
-    };
-    reader.readAsText(file);
-}
 function getToken() {
     return localStorage.getItem('token');
 }
