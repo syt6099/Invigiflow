@@ -1502,13 +1502,17 @@ function addManualTeacher() {
     showToast('Teacher added to preview.');
 }
 
-// --- FIXED: confirmDbUpload – show loading message and preserve fields ---
+// --- CRITICAL FIX: confirmDbUpload – explicit number conversion and debug logging ---
 async function confirmDbUpload() {
     const teachers = STORE.dbTempTeachers;
     if (!teachers || teachers.length === 0) {
         showToast('No teachers to save. Upload or add some first.');
         return;
     }
+
+    console.log('===== TEACHERS BEFORE UPLOAD =====');
+    console.table(teachers); // show full data
+
     showToast('Uploading teachers to database...', 10000);
 
     const existingTeachers = await apiFetch('/teachers');
@@ -1526,18 +1530,23 @@ async function confirmDbUpload() {
         }
         toAdd.push(t);
     }
+
     for (const t of toAdd) {
-        // Ensure the values are numbers
-        const years = Number(t.yearsAtSchool) || 0;
-        const hours = Number(t.teachingHours) || 18;
+        // Force conversion to numbers and ensure they are not NaN
+        const years = Number(t.yearsAtSchool);
+        const hours = Number(t.teachingHours);
+        const safeYears = isNaN(years) ? 0 : years;
+        const safeHours = isNaN(hours) ? 18 : hours;
+
         const payload = {
             name: t.name,
             email: t.email || '',
             subjects: t.subjects || [],
-            yearsAtSchool: years,
-            teachingHours: hours,
+            yearsAtSchool: safeYears,
+            teachingHours: safeHours,
         };
-        console.log('Sending teacher payload:', payload); // debug
+        console.log('Sending payload:', payload); // debug
+
         try {
             await apiFetch('/teachers', {
                 method: 'POST',
