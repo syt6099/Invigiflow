@@ -5,7 +5,8 @@
 // ---------- API Configuration ----------
 const API_BASE = 'https://invigiflow.onrender.com/api';
 
-// ---------- Helper: get JWT token ----------async function parseDbCSV() {
+// ---------- Helper: get JWT token ----------
+async function parseDbCSV() {
     const fileInput = document.getElementById('db-csv');
     if (!fileInput.files || fileInput.files.length === 0) {
         showToast('Please select a CSV file.');
