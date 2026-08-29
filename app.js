@@ -95,13 +95,13 @@ function getAllSubjectsWithOthers() {
 
 // ---------- Toast ----------
 let toastTimeout;
-function showToast(msg) {
+function showToast(msg, duration = 3000) {
     const el = document.getElementById('toast');
     if (!el) return;
     el.textContent = msg;
     el.classList.add('show');
     clearTimeout(toastTimeout);
-    toastTimeout = setTimeout(() => el.classList.remove('show'), 3000);
+    toastTimeout = setTimeout(() => el.classList.remove('show'), duration);
 }
 
 // ---------- Date/time formatting ----------
@@ -1374,7 +1374,7 @@ function renderDatabase() {
 }
 
 // ============================================================
-//  DATABASE UPLOAD
+//  DATABASE UPLOAD (fixed parsing and loading messages)
 // ============================================================
 async function initDatabaseUpload() {
     const loaded = await loadUserData();
@@ -1399,7 +1399,7 @@ function downloadDbTemplate() {
     URL.revokeObjectURL(a.href);
 }
 
-// --- FIXED: parseDbCSV – deduplicate ONLY by email, keep all rows without email ---
+// --- FIXED: parseDbCSV – correctly assigns yearsAtSchool and teachingHours ---
 async function parseDbCSV() {
     const fileInput = document.getElementById('db-csv');
     if (!fileInput.files || fileInput.files.length === 0) {
@@ -1413,16 +1413,19 @@ async function parseDbCSV() {
         const lines = text.split('\n').filter(l => l.trim());
         if (lines.length < 2) { showToast('CSV must have a header row and data.'); return; }
         const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
+        // Look for column names
         const idxName = headers.findIndex(h => h.includes('name'));
         const idxEmail = headers.findIndex(h => h.includes('email'));
         const idxSubjects = headers.findIndex(h => h.includes('subject'));
-        const idxYears = headers.findIndex(h => h.includes('year'));
-        const idxHours = headers.findIndex(h => h.includes('hour') || h.includes('teaching'));
+        // Try to find 'years' or 'yearsatschool'
+        const idxYears = headers.findIndex(h => h.includes('years') || h.includes('yearat') || h.includes('year'));
+        // Try to find 'hours' or 'teachinghours' or 'teaching'
+        const idxHours = headers.findIndex(h => h.includes('hour') || h.includes('teachinghours') || h.includes('teaching'));
         if (idxName === -1) { showToast('CSV must have a "Name" column.'); return; }
-        
-        const emailMap = new Map(); // key: email (lowercase), value: teacher object
-        const noEmailList = [];     // teachers without email – keep all
-        
+
+        const emailMap = new Map();
+        const noEmailList = [];
+
         for (let i = 1; i < lines.length; i++) {
             const cols = lines[i].split(',').map(c => c.trim());
             if (cols.length < 2) continue;
@@ -1431,7 +1434,7 @@ async function parseDbCSV() {
             const subjects = idxSubjects >= 0 ? cols[idxSubjects].split(';').map(s => s.trim()).filter(Boolean) : [];
             const years = idxYears >= 0 ? parseInt(cols[idxYears]) || 0 : 0;
             const hours = idxHours >= 0 ? parseInt(cols[idxHours]) || 0 : 18;
-            
+
             const teacher = {
                 id: Date.now() + i,
                 name,
@@ -1440,17 +1443,16 @@ async function parseDbCSV() {
                 yearsAtSchool: years,
                 teachingHours: hours
             };
-            
+
             if (email) {
                 const key = email.toLowerCase().trim();
-                emailMap.set(key, teacher); // overwrites previous with same email → keeps last
+                emailMap.set(key, teacher); // keep last occurrence
             } else {
                 noEmailList.push(teacher);
             }
         }
-        
+
         const teachers = [...emailMap.values(), ...noEmailList];
-        
         if (teachers.length === 0) { showToast('No valid teacher data found.'); return; }
         STORE.dbTempTeachers = teachers;
         renderDbUploadPreview(teachers);
@@ -1500,15 +1502,16 @@ function addManualTeacher() {
     showToast('Teacher added to preview.');
 }
 
-// --- FIXED: confirmDbUpload – skip duplicates ONLY by email, preserve fields ---
+// --- FIXED: confirmDbUpload – show loading message and preserve fields ---
 async function confirmDbUpload() {
     const teachers = STORE.dbTempTeachers;
     if (!teachers || teachers.length === 0) {
         showToast('No teachers to save. Upload or add some first.');
         return;
     }
+    showToast('Uploading teachers to database...', 10000);
+
     const existingTeachers = await apiFetch('/teachers');
-    // Build a Set of existing emails (lowercase, trim)
     const existingEmails = new Set(existingTeachers.map(t => t.email ? t.email.toLowerCase().trim() : ''));
     let added = 0;
     let skipped = 0;
@@ -1552,7 +1555,7 @@ async function confirmDbUpload() {
 }
 
 // ============================================================
-//  DATABASE EDIT (with bulk delete – fixed)
+//  DATABASE EDIT (with bulk delete and loading message)
 // ============================================================
 async function initDatabaseEdit() {
     const loaded = await loadUserData();
@@ -1663,7 +1666,7 @@ function renderDbEdit() {
         checkboxes.forEach(cb => cb.checked = !allChecked);
     });
 
-    // Delete Selected button – fixed to delete ALL selected and refresh properly
+    // Delete Selected button – with loading message
     document.getElementById('delete-selected-teachers')?.addEventListener('click', async function() {
         const selected = document.querySelectorAll('.teacher-select-checkbox:checked');
         if (selected.length === 0) {
@@ -1671,19 +1674,18 @@ function renderDbEdit() {
             return;
         }
         if (!confirm(`Delete ${selected.length} teacher(s) permanently?`)) return;
+        showToast(`Deleting ${selected.length} teachers...`, 10000);
         const ids = Array.from(selected).map(cb => cb.dataset.id);
         let deleted = 0;
         for (const id of ids) {
             try {
                 await apiFetch(`/teachers/${id}`, { method: 'DELETE' });
-                // Remove from local store immediately
                 STORE.teachers = STORE.teachers.filter(t => t.id !== id);
                 deleted++;
             } catch (err) {
                 console.error('Failed to delete teacher:', err);
             }
         }
-        // Refresh the edit page to reflect the new state
         renderDbEdit();
         showToast(`Deleted ${deleted} teacher(s).`);
     });
