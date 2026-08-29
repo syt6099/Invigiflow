@@ -1527,16 +1527,21 @@ async function confirmDbUpload() {
         toAdd.push(t);
     }
     for (const t of toAdd) {
+        // Ensure the values are numbers
+        const years = Number(t.yearsAtSchool) || 0;
+        const hours = Number(t.teachingHours) || 18;
+        const payload = {
+            name: t.name,
+            email: t.email || '',
+            subjects: t.subjects || [],
+            yearsAtSchool: years,
+            teachingHours: hours,
+        };
+        console.log('Sending teacher payload:', payload); // debug
         try {
             await apiFetch('/teachers', {
                 method: 'POST',
-                body: JSON.stringify({
-                    name: t.name,
-                    email: t.email || '',
-                    subjects: t.subjects || [],
-                    yearsAtSchool: t.yearsAtSchool || 0,
-                    teachingHours: t.teachingHours || 18,
-                }),
+                body: JSON.stringify(payload),
             });
             added++;
             if (t.email) existingEmails.add(t.email.toLowerCase().trim());
