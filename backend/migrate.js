@@ -10,9 +10,44 @@ async function readJSON(file) {
     return JSON.parse(data);
 }
 
+async function createTables() {
+    console.log('Creating tables if they do not exist...');
+    await pool.query(`
+        CREATE TABLE IF NOT EXISTS users (
+            id UUID PRIMARY KEY,
+            username TEXT NOT NULL,
+            email TEXT UNIQUE NOT NULL,
+            password_hash TEXT NOT NULL,
+            created_at TIMESTAMP
+        );
+    `);
+    await pool.query(`
+        CREATE TABLE IF NOT EXISTS teachers (
+            id UUID PRIMARY KEY,
+            user_id UUID REFERENCES users(id) ON DELETE CASCADE,
+            name TEXT NOT NULL,
+            email TEXT,
+            subjects JSONB,
+            years_at_school INT,
+            teaching_hours INT
+        );
+    `);
+    await pool.query(`
+        CREATE TABLE IF NOT EXISTS exam_weeks (
+            id UUID PRIMARY KEY,
+            user_id UUID REFERENCES users(id) ON DELETE CASCADE,
+            week_data JSONB NOT NULL,
+            created_at TIMESTAMP
+        );
+    `);
+    console.log('Tables created (or already exist).');
+}
+
 async function migrate() {
     console.log('Starting migration...');
     try {
+        await createTables();
+
         // 1. Users
         const users = await readJSON(path.join(DATA_DIR, 'users.json'));
         for (const user of users) {
@@ -26,39 +61,34 @@ async function migrate() {
 
         // 2. Teachers
         const teachers = await readJSON(path.join(DATA_DIR, 'teachers.json'));
-        for (const t of teachers) {
-            // The JSON has 'id', 'name', 'email', 'subjects', 'yearsAtSchool', 'teachingHours'
-            // We need a user_id – we'll assume the first user (or you can map)
-            // For simplicity, we assign to the first user (if any)
-            const userResult = await pool.query('SELECT id FROM users LIMIT 1');
-            if (userResult.rows.length === 0) {
-                console.warn('No users found, skipping teacher migration.');
-                break;
+        const userResult = await pool.query('SELECT id FROM users LIMIT 1');
+        const userId = userResult.rows.length > 0 ? userResult.rows[0].id : null;
+        if (!userId) {
+            console.warn('No users found; skipping teacher migration.');
+        } else {
+            for (const t of teachers) {
+                await pool.query(
+                    `INSERT INTO teachers (id, user_id, name, email, subjects, years_at_school, teaching_hours)
+                     VALUES ($1, $2, $3, $4, $5, $6, $7) ON CONFLICT (id) DO NOTHING`,
+                    [t.id, userId, t.name, t.email || '', JSON.stringify(t.subjects || []), t.yearsAtSchool || 0, t.teachingHours || 0]
+                );
             }
-            const userId = userResult.rows[0].id;
-            await pool.query(
-                `INSERT INTO teachers (id, user_id, name, email, subjects, years_at_school, teaching_hours)
-                 VALUES ($1, $2, $3, $4, $5, $6, $7) ON CONFLICT (id) DO NOTHING`,
-                [t.id, userId, t.name, t.email || '', JSON.stringify(t.subjects || []), t.yearsAtSchool || 0, t.teachingHours || 0]
-            );
+            console.log(`Migrated ${teachers.length} teachers.`);
         }
-        console.log(`Migrated ${teachers.length} teachers.`);
 
-        // 3. Exam Weeks (with embedded exams, allocations, etc.)
+        // 3. Exam Weeks
         const weeks = await readJSON(path.join(DATA_DIR, 'examWeeks.json'));
-        for (const w of weeks) {
-            const userResult = await pool.query('SELECT id FROM users LIMIT 1');
-            if (userResult.rows.length === 0) break;
-            const userId = userResult.rows[0].id;
-            // Build the week_data object (without the id field)
-            const { id, ...weekData } = w; // remove id from data
-            await pool.query(
-                `INSERT INTO exam_weeks (id, user_id, week_data, created_at)
-                 VALUES ($1, $2, $3, $4) ON CONFLICT (id) DO NOTHING`,
-                [id, userId, JSON.stringify(weekData), w.createdAt || new Date().toISOString()]
-            );
+        if (userId) {
+            for (const w of weeks) {
+                const { id, ...weekData } = w;
+                await pool.query(
+                    `INSERT INTO exam_weeks (id, user_id, week_data, created_at)
+                     VALUES ($1, $2, $3, $4) ON CONFLICT (id) DO NOTHING`,
+                    [id, userId, JSON.stringify(weekData), w.createdAt || new Date().toISOString()]
+                );
+            }
+            console.log(`Migrated ${weeks.length} exam weeks.`);
         }
-        console.log(`Migrated ${weeks.length} exam weeks.`);
 
         console.log('Migration completed successfully.');
         process.exit(0);
